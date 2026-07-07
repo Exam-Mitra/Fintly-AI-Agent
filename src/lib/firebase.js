@@ -1,12 +1,10 @@
-// Firebase setup — Authentication (Google + Email/Password) and Firestore (chat history).
-// This project is free at this scale: unlimited free Auth, and Firestore's free tier
-// (1GB storage, 50K reads/day, 20K writes/day) comfortably covers personal + early public use.
-
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -29,8 +27,21 @@ export const db = getFirestore(app);
 
 const googleProvider = new GoogleAuthProvider();
 
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+}
+
+// Popups are unreliable on mobile browsers (often silently blocked or never resolve).
+// Use redirect-based sign-in on mobile, and popup on desktop for a smoother experience.
 export function loginWithGoogle() {
+  if (isMobileDevice()) {
+    return signInWithRedirect(auth, googleProvider);
+  }
   return signInWithPopup(auth, googleProvider);
+}
+
+export function checkRedirectResult() {
+  return getRedirectResult(auth);
 }
 
 export function loginWithEmail(email, password) {
