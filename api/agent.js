@@ -1,4 +1,19 @@
-// Vercel serverless function — free tier.const SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.`;`;
+// Vercel serverless function — free tier.
+// This is the "Fintly Pro" engine: it queries up to 5 free AI providers in parallel
+// (Groq, Gemini, OpenRouter, Cerebras, Hugging Face), then uses one of them as a
+// "judge" to synthesize all the independent answers into a single, more accurate,
+// polished final response. If some providers are rate-limited, down, or slow, it
+// proceeds with whichever ones responded in time — it never fully fails as long as
+// at least one provider works.
+//
+// Required environment variables (set these in Vercel -> Project Settings -> Environment Variables):
+//   GROQ_API_KEY
+//   GEMINI_API_KEY
+//   OPENROUTER_API_KEY
+//   CEREBRAS_API_KEY
+//   HUGGINGFACE_API_KEY
+
+const SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.`;
 
 const PROVIDER_TIMEOUT_MS = 20000; // don't let one slow provider hold up the whole response forever
 
@@ -22,6 +37,7 @@ async function callGroq(messages) {
       max_tokens: 900,
       reasoning_effort: 'low',
     }),
+  });
   if (!res.ok) throw new Error(`groq_${res.status}`);
   const data = await res.json();
   const text = data?.choices?.[0]?.message?.content?.trim();
@@ -124,7 +140,12 @@ User question: "${userQuestion}"
 
 ${candidateAnswers.map((a, i) => `--- Answer ${i + 1} ---\n${a}`).join('\n\n')}
 
-Your task: Write ONE final, synthesized answer that combines the best, most accurate, most complete information from all the answers above. Do not mention that you are combining multiple answers, and do not say things like "Answer 1 says" — just give a single clean, confident, well-written final answer as if you knew this yourself. If the answers disagree on facts, use your own best judgment for what is most likely correct. Preserve any code blocks exactly and correctly formatted.`;
+Your task: Write ONE final, synthesized answer that combines the best, most accurate, most complete information from all the answers above. Do not mention that you are combining multiple answers, and do not say things like "Answer 1 says" — just give a single clean, confident, well-written final answer as if you knew this yourself. If the answers disagree on facts, use your own best judgment for what is most likely correct.
+
+Formatting rules (important):
+- Format your response in clean Markdown (headings, **bold**, bullet lists where helpful).
+- Preserve any code blocks exactly, correctly formatted with fenced code blocks and a language tag (e.g. \`\`\`python).
+- Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax [text](url) — they are not URLs and must stay as plain code text. Only use real link formatting for actual web URLs.`;
 
   const judgeMessages = [{ role: 'user', content: judgePrompt }];
 
