@@ -1,9 +1,10 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import CodeBlock from './CodeBlock.jsx';
 
 // Renders AI reply text as properly formatted Markdown — bold, italics, lists,
-// headings, and fenced code blocks all display correctly instead of showing
-// raw '**', '#', or backticks as literal characters.
+// headings, tables, and fenced code blocks (with syntax highlighting + copy button)
+// all display correctly instead of showing raw '**', '#', or backticks as literal text.
 export default function MarkdownMessage({ text }) {
   return (
     <div className="markdown-body">
@@ -14,6 +15,9 @@ export default function MarkdownMessage({ text }) {
             <a {...props} target="_blank" rel="noopener noreferrer" />
           ),
           code: ({ node, inline, className, children, ...props }) => {
+            const match = /language-(\w+)/.exec(className || '');
+            const codeString = String(children).replace(/\n$/, '');
+
             if (inline) {
               return (
                 <code className="inline-code" {...props}>
@@ -21,13 +25,8 @@ export default function MarkdownMessage({ text }) {
                 </code>
               );
             }
-            return (
-              <pre>
-                <code className={className} {...props}>
-                  {children}
-                </code>
-              </pre>
-            );
+
+            return <CodeBlock code={codeString} language={match ? match[1] : ''} />;
           },
         }}
       >
