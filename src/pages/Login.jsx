@@ -24,6 +24,8 @@ export default function Login() {
     setBusy(true);
     try {
       await loginWithGoogle();
+      // On mobile this redirects away from the page, so nothing after this runs.
+      // On desktop (popup), navigate once it resolves.
       navigate('/');
     } catch (e) {
       setError('Google sign-in failed. Please try again.');
@@ -52,6 +54,7 @@ export default function Login() {
   return (
     <div style={styles.page}>
       <div style={styles.card}>
+        <img src="/logo.svg" alt="" style={{ width: 48, height: 48, display: 'block', margin: '0 auto 14px' }} />
         <div style={styles.logo}>Fintly AI Agent</div>
         <p style={styles.tagline}>Your multi-model AI, always at its best.</p>
 
