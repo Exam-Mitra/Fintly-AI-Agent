@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { logout } from '../lib/firebase.js';
@@ -19,18 +19,50 @@ const CloseIcon = () => (
     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
+const SearchIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+);
+
+function groupByDate(conversations) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 86400000;
+  const startOfWeek = startOfToday - 6 * 86400000;
+
+  const groups = { Today: [], Yesterday: [], 'Previous 7 Days': [], Older: [] };
+
+  for (const c of conversations) {
+    const t = c.updatedAt?.toMillis ? c.updatedAt.toMillis() : (c.updatedAt?.seconds ? c.updatedAt.seconds * 1000 : 0);
+    if (t >= startOfToday) groups.Today.push(c);
+    else if (t >= startOfYesterday) groups.Yesterday.push(c);
+    else if (t >= startOfWeek) groups['Previous 7 Days'].push(c);
+    else groups.Older.push(c);
+  }
+  return groups;
+}
 
 export default function Sidebar({ isOpen, onClose }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const { conversationId } = useParams();
   const [conversations, setConversations] = useState([]);
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (!user) return;
     const unsub = watchConversations(user.uid, setConversations);
     return unsub;
   }, [user]);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return conversations;
+    const q = search.toLowerCase();
+    return conversations.filter((c) => (c.title || '').toLowerCase().includes(q));
+  }, [conversations, search]);
+
+  const grouped = useMemo(() => groupByDate(filtered), [filtered]);
 
   const handleNewChat = () => {
     navigate('/');
@@ -53,53 +85,85 @@ export default function Sidebar({ isOpen, onClose }) {
     <>
       <div className={`sidebar-overlay ${isOpen ? 'open' : ''}`} onClick={onClose} />
       <div className={`sidebar ${isOpen ? 'open' : ''}`}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '16px 16px 10px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1 }}>
+            <img src="/logo.svg" alt="" style={{ width: 22, height: 22 }} />
+            <span style={{ fontWeight: 700, fontSize: 14.5 }} className="gradient-text">Fintly</span>
+          </div>
+          <button onClick={onClose} className="sidebar-close-btn" style={{ color: 'var(--ink-soft)', padding: 6, flexShrink: 0 }}>
+            <CloseIcon />
+          </button>
+        </div>
+
+        <div style={{ padding: '4px 16px 12px' }}>
           <button onClick={handleNewChat} style={{
-            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             background: 'var(--accent-gradient)', color: '#0F1115', fontWeight: 700, fontSize: 14,
             padding: '11px 0', borderRadius: 12,
           }}>
             <PlusIcon /> New Chat
           </button>
-          <button onClick={onClose} style={{
-            color: 'var(--ink-soft)', padding: 8, flexShrink: 0,
+        </div>
+
+        <div style={{ padding: '0 16px 10px' }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)',
+            borderRadius: 10, padding: '8px 12px',
           }}>
-            <CloseIcon />
-          </button>
+            <SearchIcon />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search chats"
+              style={{
+                flex: 1, background: 'transparent', border: 'none', outline: 'none',
+                color: 'var(--ink)', fontSize: 13.5,
+              }}
+            />
+          </div>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '4px 10px' }}>
-          <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', padding: '8px 10px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Chat History
-          </div>
-          {conversations.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => handleOpenChat(c.id)}
-              style={{
-                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-                padding: '10px 12px', borderRadius: 10, textAlign: 'left',
-                background: conversationId === c.id ? 'var(--surface-2)' : 'transparent',
-                marginBottom: 2,
-              }}
-            >
-              <span style={{
-                fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap', flex: 1,
-              }}>
-                {c.title || 'New chat'}
-              </span>
-              <span
-                onClick={(e) => handleDelete(e, c.id)}
-                style={{ color: 'var(--ink-faint)', flexShrink: 0, padding: 4 }}
-              >
-                <TrashIcon />
-              </span>
-            </button>
-          ))}
-          {conversations.length === 0 && (
-            <div style={{ color: 'var(--ink-faint)', fontSize: 13, padding: '12px 10px' }}>
-              No conversations yet.
+          {Object.entries(grouped).map(([label, items]) => {
+            if (!items.length) return null;
+            return (
+              <div key={label} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-faint)', padding: '10px 10px 6px', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  {label}
+                </div>
+                {items.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => handleOpenChat(c.id)}
+                    className="sidebar-chat-item"
+                    style={{
+                      width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                      padding: '9px 12px', borderRadius: 10, textAlign: 'left',
+                      background: conversationId === c.id ? 'var(--surface-2)' : 'transparent',
+                      marginBottom: 1,
+                    }}
+                  >
+                    <span style={{
+                      fontSize: 13.5, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap', flex: 1,
+                    }}>
+                      {c.title || 'New chat'}
+                    </span>
+                    <span
+                      onClick={(e) => handleDelete(e, c.id)}
+                      className="sidebar-delete-icon"
+                      style={{ color: 'var(--ink-faint)', flexShrink: 0, padding: 4 }}
+                    >
+                      <TrashIcon />
+                    </span>
+                  </button>
+                ))}
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div style={{ color: 'var(--ink-faint)', fontSize: 13, padding: '16px 10px', textAlign: 'center' }}>
+              {search ? 'No matching chats.' : 'No conversations yet.'}
             </div>
           )}
         </div>
