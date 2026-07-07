@@ -9,11 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
-    "react-router-dom": "^7.1.1",
-    "firebase": "^11.1.0"
-  },
+  "react": "^19.2.7",
+  "react-dom": "^19.2.7",
+  "react-router-dom": "^7.1.1",
+  "firebase": "^11.1.0",
+  "react-markdown": "^10.1.0",
+  "remark-gfm": "^4.0.1"
+},
   "devDependencies": {
     "@vitejs/plugin-react": "^6.0.3",
     "vite": "^8.1.1",
