@@ -33,7 +33,7 @@ export default function Chat() {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth > 900);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef(null);
   const currentIdRef = useRef(conversationId || null);
 
@@ -89,22 +89,15 @@ export default function Chat() {
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: 'var(--bg)' }}>
+    <div className="app-shell">
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-      {sidebarOpen && window.innerWidth <= 900 && (
-        <div
-          onClick={() => setSidebarOpen(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 20 }}
-        />
-      )}
-
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div className="main-area">
         <div style={{
-          display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px',
-          borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 14, padding: '14px 16px',
+          borderBottom: '1px solid var(--border)', flexShrink: 0,
         }}>
-          <button onClick={() => setSidebarOpen((v) => !v)} style={{ color: 'var(--ink-soft)' }}>
+          <button onClick={() => setSidebarOpen((v) => !v)} style={{ color: 'var(--ink-soft)', flexShrink: 0 }}>
             <MenuIcon />
           </button>
           <div style={{ fontWeight: 700, fontSize: 15 }}>
@@ -112,14 +105,14 @@ export default function Chat() {
           </div>
         </div>
 
-        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '24px 20px' }}>
-          <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 22 }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px 14px', WebkitOverflowScrolling: 'touch' }}>
+          <div style={{ maxWidth: 720, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 20 }}>
             {messages.length === 0 && (
-              <div style={{ textAlign: 'center', marginTop: '18vh' }}>
-                <h1 style={{ fontSize: 28, marginBottom: 8 }}>
+              <div style={{ textAlign: 'center', marginTop: '14vh', padding: '0 12px' }}>
+                <h1 style={{ fontSize: 24, marginBottom: 8 }}>
                   <span className="gradient-text">Fintly AI Agent</span>
                 </h1>
-                <p style={{ color: 'var(--ink-soft)', fontSize: 14.5 }}>
+                <p style={{ color: 'var(--ink-soft)', fontSize: 14 }}>
                   Ask anything. Fintly Pro thinks it through from every angle.
                 </p>
               </div>
@@ -133,14 +126,15 @@ export default function Chat() {
                   </div>
                 )}
                 <div style={{
-                  maxWidth: '85%',
+                  maxWidth: '88%',
                   background: m.role === 'user' ? 'var(--surface-2)' : 'var(--surface)',
                   border: m.role === 'assistant' ? '1px solid var(--border)' : 'none',
                   borderRadius: 16,
-                  padding: '14px 18px',
+                  padding: '13px 16px',
                   fontSize: 15,
                   lineHeight: 1.6,
                   whiteSpace: 'pre-wrap',
+                  wordBreak: 'break-word',
                 }}>
                   {m.text}
                 </div>
@@ -160,11 +154,11 @@ export default function Chat() {
           </div>
         </div>
 
-        <div style={{ padding: '16px 20px 22px' }}>
+        <div style={{ padding: '12px 14px calc(16px + env(safe-area-inset-bottom))', flexShrink: 0 }}>
           <div style={{
             maxWidth: 720, margin: '0 auto', background: 'var(--surface)',
-            border: '1px solid var(--border)', borderRadius: 18, padding: '6px 8px 6px 18px',
-            display: 'flex', alignItems: 'center', gap: 10,
+            border: '1px solid var(--border)', borderRadius: 18, padding: '5px 6px 5px 16px',
+            display: 'flex', alignItems: 'center', gap: 8,
           }}>
             <input
               value={input}
@@ -172,8 +166,8 @@ export default function Chat() {
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
               placeholder="Message Fintly AI Agent…"
               style={{
-                flex: 1, background: 'transparent', border: 'none', outline: 'none',
-                color: 'var(--ink)', fontSize: 15, padding: '10px 0',
+                flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
+                color: 'var(--ink)', fontSize: 16, padding: '9px 0',
               }}
             />
             <button
@@ -189,7 +183,7 @@ export default function Chat() {
               <SendIcon />
             </button>
           </div>
-          <div style={{ textAlign: 'center', color: 'var(--ink-faint)', fontSize: 11.5, marginTop: 10 }}>
+          <div style={{ textAlign: 'center', color: 'var(--ink-faint)', fontSize: 11, marginTop: 8, padding: '0 8px' }}>
             Fintly Pro synthesizes multiple AI models for the most accurate answer.
           </div>
         </div>
