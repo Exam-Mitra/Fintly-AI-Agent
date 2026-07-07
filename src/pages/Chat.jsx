@@ -126,20 +126,33 @@ export default function Chat() {
                     Fintly Pro
                   </div>
                 )}
-                <div style={{
+                                <div style={{
                   maxWidth: '88%',
                   background: m.role === 'user' ? 'var(--surface-2)' : 'var(--surface)',
                   border: m.role === 'assistant' ? '1px solid var(--border)' : 'none',
                   borderRadius: 16,
                   padding: '13px 16px',
-                  fontSize: 15,
-                  lineHeight: 1.6,
-                  whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',
                 }}>
-                  {m.text}
+                  {m.role === 'assistant' ? (
+                    <MarkdownMessage text={m.text} />
+                  ) : (
+                    <div style={{ fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                  )}
+                </div                <div style={{
+                  maxWidth: '88%',
+                  background: m.role === 'user' ? 'var(--surface-2)' : 'var(--surface)',
+                  border: m.role === 'assistant' ? '1px solid var(--border)' : 'none',
+                  borderRadius: 16,
+                  padding: '13px 16px',
+                  wordBreak: 'break-word',
+                }}>
+                  {m.role === 'assistant' ? (
+                    <MarkdownMessage text={m.text} />
+                  ) : (
+                    <div style={{ fontSize: 15, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{m.text}</div>
+                  )}
                 </div>
-              </div>
             ))}
 
             {sending && (
