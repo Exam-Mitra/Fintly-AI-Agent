@@ -13,7 +13,7 @@ const GoogleIcon = () => (
 
 export default function Login() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState('login'); // 'login' | 'signup'
+  const [mode, setMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -27,7 +27,6 @@ export default function Login() {
       navigate('/');
     } catch (e) {
       setError('Google sign-in failed. Please try again.');
-    } finally {
       setBusy(false);
     }
   };
@@ -113,21 +112,21 @@ function friendlyError(code) {
 
 const styles = {
   page: {
-    minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center',
+    minHeight: '100dvh', display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'radial-gradient(circle at 50% 0%, #1a1d29 0%, #0F1115 60%)',
     padding: 20,
   },
   card: {
     width: '100%', maxWidth: 380, background: '#161923', borderRadius: 20,
-    padding: '36px 28px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
+    padding: '32px 24px', boxShadow: '0 20px 60px rgba(0,0,0,0.4)',
     border: '1px solid rgba(255,255,255,0.06)',
   },
   logo: {
-    fontSize: 26, fontWeight: 700, textAlign: 'center', color: '#fff',
+    fontSize: 24, fontWeight: 700, textAlign: 'center', color: '#fff',
     background: 'linear-gradient(90deg, #6EA8FE, #B084F5)',
     WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
   },
-  tagline: { textAlign: 'center', color: '#8A8F9C', fontSize: 13.5, marginTop: 6, marginBottom: 28 },
+  tagline: { textAlign: 'center', color: '#8A8F9C', fontSize: 13, marginTop: 6, marginBottom: 26 },
   googleBtn: {
     width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
     background: '#fff', color: '#1a1a1a', fontWeight: 600, fontSize: 14.5,
@@ -135,17 +134,17 @@ const styles = {
   },
   divider: {
     display: 'flex', alignItems: 'center', textAlign: 'center', color: '#5A5F6B',
-    fontSize: 12.5, margin: '20px 0',
+    fontSize: 12.5, margin: '18px 0',
   },
   input: {
     background: '#1E2230', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12,
-    padding: '13px 14px', color: '#fff', fontSize: 14.5, outline: 'none',
+    padding: '13px 14px', color: '#fff', fontSize: 16, outline: 'none', width: '100%',
   },
   primaryBtn: {
     background: 'linear-gradient(90deg, #6EA8FE, #B084F5)', color: '#0F1115', fontWeight: 700,
     fontSize: 14.5, padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', marginTop: 4,
   },
   error: { color: '#FF8A8A', fontSize: 13, textAlign: 'center' },
-  switchMode: { textAlign: 'center', color: '#8A8F9C', fontSize: 13.5, marginTop: 22 },
-  linkBtn: { color: '#8FB8FF', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600, padding: 0 },
+  switchMode: { textAlign: 'center', color: '#8A8F9C', fontSize: 13, marginTop: 20 },
+  linkBtn: { color: '#8FB8FF', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, padding: 0 },
 };
