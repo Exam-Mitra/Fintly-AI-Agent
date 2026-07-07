@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Sidebar from '../components/Sidebar.jsx';
+import MarkdownMessage from '../components/MarkdownMessage.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { createConversation, getConversation, saveMessages, newConversationId } from '../lib/conversations.js';
 import { getFintlyResponse } from '../lib/agent.js';
