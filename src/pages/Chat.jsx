@@ -9,6 +9,7 @@ import QuickActions from '../components/QuickActions.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { createConversation, getConversation, saveMessages, newConversationId } from '../lib/conversations.js';
 import { getFintlyResponse } from '../lib/agent.js';
+import { watchProfile, addMemory } from '../lib/profile.js';
 
 const MenuIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -74,6 +75,7 @@ export default function Chat() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState(null);
   const [editText, setEditText] = useState('');
+  const [profile, setProfile] = useState({ customInstructions: '', memories: [] });
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const currentIdRef = useRef(conversationId || null);
@@ -111,12 +113,22 @@ export default function Chat() {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
+  useEffect(() => {
+    if (!user) return;
+    const unsub = watchProfile(user.uid, setProfile);
+    return unsub;
+  }, [user]);
+
   const sendMessage = async (baseMessages, conversationDocId) => {
     setSending(true);
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const data = await getFintlyResponse(baseMessages, { signal: controller.signal });
+      const data = await getFintlyResponse(baseMessages, {
+        signal: controller.signal,
+        customInstructions: profile.customInstructions,
+        memories: profile.memories,
+      });
       const botMsg = {
         role: 'assistant',
         text: data.reply,
@@ -150,6 +162,8 @@ export default function Chat() {
     if (!text || sending) return;
     setInput('');
 
+    maybeSaveAsMemory(text);
+
     const userMsg = { role: 'user', text, ts: Date.now(), animate: false };
     const updated = [...messages, userMsg];
     setMessages(updated);
@@ -168,6 +182,17 @@ export default function Chat() {
 
   const stopGenerating = () => {
     abortRef.current?.abort();
+  };
+
+  // Lightweight "remember this" detector — if the user explicitly asks Fintly
+  // Pro to remember something (e.g. "remember that I'm vegetarian"), save it
+  // to their profile automatically so it applies to every future chat, without
+  // making them go find the Settings page.
+  const maybeSaveAsMemory = (text) => {
+    const match = text.match(/^(?:please\s+)?remember(?:\s+that)?\s+(.+)/i);
+    if (match && match[1] && user) {
+      addMemory(user.uid, match[1].trim().replace(/\.$/, ''));
+    }
   };
 
   const regenerate = (assistantIndex) => {
