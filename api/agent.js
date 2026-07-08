@@ -17,7 +17,24 @@
 //   CEREBRAS_API_KEY
 //   HUGGINGFACE_API_KEY
 
-const SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.`;
+const BASE_SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.`;
+
+// Builds the final system prompt by folding in the user's saved Custom
+// Instructions and remembered facts (from Settings), so every one of the 5
+// engines + the judge all respect them consistently.
+function buildSystemPrompt(customInstructions, memories) {
+  let prompt = BASE_SYSTEM_PROMPT;
+
+  if (Array.isArray(memories) && memories.length) {
+    prompt += `\n\nHere are some facts the user has asked you to remember about them, across all their chats — keep these in mind when relevant, but don't force them into every answer unnaturally:\n${memories.map((m) => `- ${m}`).join('\n')}`;
+  }
+
+  if (customInstructions && customInstructions.trim()) {
+    prompt += `\n\nThe user has also given these custom instructions for how you should behave — follow them closely unless they conflict with being safe, accurate, or helpful:\n"""${customInstructions.trim()}"""`;
+  }
+
+  return prompt;
+}
 
 const PROVIDER_TIMEOUT_MS = 20000; // don't let one slow provider hold up the whole response forever
 
@@ -171,7 +188,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { messages } = req.body || {};
+  const { messages, customInstructions, memories } = req.body || {};
   if (!Array.isArray(messages) || !messages.length) {
     res.status(400).json({ error: 'messages array required' });
     return;
@@ -181,7 +198,8 @@ export default async function handler(req, res) {
 
   // Keep the payload reasonably small — send only recent turns to each provider.
   const trimmedHistory = messages.slice(-16);
-  const fullMessages = [{ role: 'system', content: SYSTEM_PROMPT }, ...trimmedHistory];
+  const systemPrompt = buildSystemPrompt(customInstructions, memories);
+  const fullMessages = [{ role: 'system', content: systemPrompt }, ...trimmedHistory];
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
 
   // NOTE: providers are only ever identified by anonymous index (1..5) anywhere
