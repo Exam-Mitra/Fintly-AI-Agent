@@ -1,10 +1,14 @@
 // Vercel serverless function — free tier.
-// This is the "Fintly Pro" engine: it queries up to 5 free AI providers in parallel
-// (Groq, Gemini, OpenRouter, Cerebras, Hugging Face), then uses one of them as a
-// "judge" to synthesize all the independent answers into a single, more accurate,
-// polished final response. If some providers are rate-limited, down, or slow, it
-// proceeds with whichever ones responded in time — it never fully fails as long as
-// at least one provider works.
+// This is the "Fintly Pro" engine: it queries up to 5 free AI providers in parallel,
+// then uses one of them as a "judge" to synthesize all the independent answers into
+// a single, more accurate, polished final response. If some providers are
+// rate-limited, down, or slow, it proceeds with whichever ones responded in time —
+// it never fully fails as long as at least one provider works.
+//
+// It also reports back ANONYMIZED timing/engine metadata (never real provider names —
+// just "Engine 1", "Engine 2", etc.) so the client can show a transparency panel like
+// "Fintly Pro consulted 5 engines, 4 responded, in 12.3s" without ever leaking which
+// underlying AI companies are actually powering it.
 //
 // Required environment variables (set these in Vercel -> Project Settings -> Environment Variables):
 //   GROQ_API_KEY
@@ -173,45 +177,76 @@ export default async function handler(req, res) {
     return;
   }
 
+  const overallStart = Date.now();
+
   // Keep the payload reasonably small — send only recent turns to each provider.
   const trimmedHistory = messages.slice(-16);
   const fullMessages = [{ role: 'system', content: SYSTEM_PROMPT }, ...trimmedHistory];
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
 
+  // NOTE: providers are only ever identified by anonymous index (1..5) anywhere
+  // this data leaves the server — real provider names must never reach the client.
   const providerCalls = [
-    { name: 'groq', fn: () => callGroq(fullMessages) },
-    { name: 'gemini', fn: () => callGemini(fullMessages) },
-    { name: 'openrouter', fn: () => callOpenRouter(fullMessages) },
-    { name: 'cerebras', fn: () => callCerebras(fullMessages) },
-    { name: 'huggingface', fn: () => callHuggingFace(fullMessages) },
+    () => callGroq(fullMessages),
+    () => callGemini(fullMessages),
+    () => callOpenRouter(fullMessages),
+    () => callCerebras(fullMessages),
+    () => callHuggingFace(fullMessages),
   ];
 
-  const settled = await Promise.allSettled(
-    providerCalls.map((p) => withTimeout(p.fn(), PROVIDER_TIMEOUT_MS, p.name))
+  const results = await Promise.all(
+    providerCalls.map((fn) => {
+      const start = Date.now();
+      return withTimeout(fn(), PROVIDER_TIMEOUT_MS, 'provider').then(
+        (value) => ({ ok: true, ms: Date.now() - start, value }),
+        () => ({ ok: false, ms: Date.now() - start })
+      );
+    })
   );
-  const successfulAnswers = settled
-    .filter((r) => r.status === 'fulfilled')
-    .map((r) => r.value);
+
+  const successfulAnswers = results.filter((r) => r.ok).map((r) => r.value);
+  const engineTimings = results.map((r, i) => ({ id: i + 1, ok: r.ok, ms: r.ms }));
 
   if (successfulAnswers.length === 0) {
     res.status(200).json({
-      reply: "I'm having trouble reaching any of my AI models right now. Please try again in a moment.",
+      reply: "I'm having trouble reaching any of my AI engines right now. Please try again in a moment.",
       modelsUsed: 0,
+      totalEngines: providerCalls.length,
+      elapsedMs: Date.now() - overallStart,
+      engineTimings,
     });
     return;
   }
 
   // If only one model responded, no need to synthesize — just return it directly.
   if (successfulAnswers.length === 1) {
-    res.status(200).json({ reply: successfulAnswers[0], modelsUsed: 1 });
+    res.status(200).json({
+      reply: successfulAnswers[0],
+      modelsUsed: 1,
+      totalEngines: providerCalls.length,
+      elapsedMs: Date.now() - overallStart,
+      engineTimings,
+    });
     return;
   }
 
   try {
     const merged = await synthesize(lastUserMessage, successfulAnswers);
-    res.status(200).json({ reply: merged, modelsUsed: successfulAnswers.length });
+    res.status(200).json({
+      reply: merged,
+      modelsUsed: successfulAnswers.length,
+      totalEngines: providerCalls.length,
+      elapsedMs: Date.now() - overallStart,
+      engineTimings,
+    });
   } catch (err) {
     // Synthesis itself failed for some reason — fall back to the first successful answer.
-    res.status(200).json({ reply: successfulAnswers[0], modelsUsed: successfulAnswers.length });
+    res.status(200).json({
+      reply: successfulAnswers[0],
+      modelsUsed: successfulAnswers.length,
+      totalEngines: providerCalls.length,
+      elapsedMs: Date.now() - overallStart,
+      engineTimings,
+    });
   }
 }
