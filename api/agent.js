@@ -91,6 +91,45 @@ async function callGemini(messages) {
   return text;
 }
 
+// Vision-capable variant of callGemini — attaches an inline image to the LAST
+// user turn (the one carrying the actual question about the image), while
+// keeping the rest of the conversation as normal text turns for context.
+// Gemini is the only one of our 5 free engines with a usable free vision tier,
+// so image questions are answered by this single call rather than the usual
+// 5-engine + judge pipeline.
+async function callGeminiVision(messages, attachment) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error('not_configured');
+  const sys = messages.find((m) => m.role === 'system');
+  const nonSystem = messages.filter((m) => m.role !== 'system');
+
+  const contents = nonSystem.map((m, i) => {
+    const isLastUserTurn = i === nonSystem.length - 1 && m.role === 'user';
+    const parts = [{ text: m.content }];
+    if (isLastUserTurn) {
+      parts.push({ inlineData: { mimeType: attachment.mimeType, data: attachment.dataBase64 } });
+    }
+    return { role: m.role === 'assistant' ? 'model' : 'user', parts };
+  });
+
+  const body = { contents };
+  if (sys) body.systemInstruction = { parts: [{ text: sys.content }] };
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) throw new Error(`gemini_vision_${res.status}`);
+  const data = await res.json();
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!text) throw new Error('gemini_vision_empty');
+  return text;
+}
+
 async function callOpenRouter(messages) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('not_configured');
@@ -188,7 +227,7 @@ export default async function handler(req, res) {
     return;
   }
 
-  const { messages, customInstructions, memories } = req.body || {};
+  const { messages, customInstructions, memories, imageAttachment } = req.body || {};
   if (!Array.isArray(messages) || !messages.length) {
     res.status(400).json({ error: 'messages array required' });
     return;
@@ -201,6 +240,35 @@ export default async function handler(req, res) {
   const systemPrompt = buildSystemPrompt(customInstructions, memories);
   const fullMessages = [{ role: 'system', content: systemPrompt }, ...trimmedHistory];
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
+
+  // An image was attached — only Gemini (of our 5 free engines) has a usable
+  // free vision tier, so we skip the usual 5-engine + judge pipeline entirely
+  // and answer directly with a single vision-capable call.
+  if (imageAttachment && imageAttachment.dataBase64) {
+    try {
+      const reply = await withTimeout(
+        callGeminiVision(fullMessages, imageAttachment),
+        PROVIDER_TIMEOUT_MS,
+        'gemini_vision'
+      );
+      res.status(200).json({
+        reply,
+        modelsUsed: 1,
+        totalEngines: 1,
+        elapsedMs: Date.now() - overallStart,
+        engineTimings: [{ id: 1, ok: true, ms: Date.now() - overallStart }],
+      });
+    } catch (err) {
+      res.status(200).json({
+        reply: "I couldn't analyze that image right now — please try again in a moment.",
+        modelsUsed: 0,
+        totalEngines: 1,
+        elapsedMs: Date.now() - overallStart,
+        engineTimings: [{ id: 1, ok: false, ms: Date.now() - overallStart }],
+      });
+    }
+    return;
+  }
 
   // NOTE: providers are only ever identified by anonymous index (1..5) anywhere
   // this data leaves the server — real provider names must never reach the client.
