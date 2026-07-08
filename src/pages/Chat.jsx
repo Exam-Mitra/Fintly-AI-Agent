@@ -12,6 +12,10 @@ import { createConversation, getConversation, saveMessages, newConversationId } 
 import { getFintlyResponse } from '../lib/agent.js';
 import { watchProfile, addMemory } from '../lib/profile.js';
 import { processAttachedFile } from '../lib/attachments.js';
+import { saveAnswer } from '../lib/saved.js';
+import { exportAnswerAsPdf } from '../lib/exportPdf.js';
+import { watchUsage, consumeMessageCredit } from '../lib/usage.js';
+import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const MenuIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -85,6 +89,8 @@ export default function Chat() {
   const [profile, setProfile] = useState({ customInstructions: '', memories: [] });
   const [pendingAttachment, setPendingAttachment] = useState(null);
   const [attachError, setAttachError] = useState('');
+  const [usage, setUsage] = useState(null);
+  const [showRequestModal, setShowRequestModal] = useState(false);
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -126,6 +132,12 @@ export default function Chat() {
   useEffect(() => {
     if (!user) return;
     const unsub = watchProfile(user.uid, setProfile);
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = watchUsage(user.uid, setUsage);
     return unsub;
   }, [user]);
 
@@ -189,6 +201,19 @@ export default function Chat() {
     const attachment = pendingAttachment;
     if (!typed && !attachment) return;
     if (sending) return;
+
+    // Enforce the daily message limit (server-verified via a Firestore
+    // transaction so it can't be bypassed by editing client-side state).
+    if (usage && !usage.canSend) {
+      setShowRequestModal(true);
+      return;
+    }
+    const credit = await consumeMessageCredit(user.uid);
+    if (!credit.ok) {
+      setShowRequestModal(true);
+      return;
+    }
+
     setInput('');
     setPendingAttachment(null);
 
@@ -260,6 +285,15 @@ export default function Chat() {
     const truncated = messages.slice(0, assistantIndex);
     setMessages(truncated);
     sendMessage(truncated, currentIdRef.current);
+  };
+
+  const handleSaveAnswer = (text) => {
+    if (!user) return;
+    saveAnswer(user.uid, { text, folder: 'General' });
+  };
+
+  const handleExportPdf = (text) => {
+    exportAnswerAsPdf(text, 'fintly-answer');
   };
 
   const startEdit = (index) => {
@@ -392,6 +426,8 @@ export default function Chat() {
                                 text={m.text}
                                 onRegenerate={() => regenerate(i)}
                                 showRegenerate={isLastAssistant}
+                                onSave={() => handleSaveAnswer(m.text)}
+                                onExportPdf={() => handleExportPdf(m.text)}
                               />
                             )}
                             {m.role === 'user' && !sending && (
@@ -440,6 +476,32 @@ export default function Chat() {
                 {attachError}
               </div>
             )}
+            {usage && usage.isLastFreeMessage && (
+              <div style={{
+                color: '#FFD98A', fontSize: 12.5, marginBottom: 8, padding: '8px 12px',
+                background: 'rgba(255, 217, 138, 0.1)', border: '1px solid rgba(255, 217, 138, 0.3)', borderRadius: 10,
+              }}>
+                ⚠️ You have 1 message left today. After this, you can request more.
+              </div>
+            )}
+            {usage && !usage.canSend && (
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+                color: 'var(--danger)', fontSize: 12.5, marginBottom: 8, padding: '10px 14px',
+                background: 'rgba(255, 138, 138, 0.1)', border: '1px solid rgba(255, 138, 138, 0.3)', borderRadius: 10,
+              }}>
+                <span>You've reached today's message limit.</span>
+                <button
+                  onClick={() => setShowRequestModal(true)}
+                  style={{
+                    fontSize: 12, fontWeight: 700, color: '#0F1115', padding: '6px 14px',
+                    borderRadius: 20, background: 'var(--accent-gradient)', flexShrink: 0,
+                  }}
+                >
+                  Request More Tokens
+                </button>
+              </div>
+            )}
             {pendingAttachment && (
               <div style={{ marginBottom: 8 }}>
                 <AttachmentChip
@@ -454,6 +516,7 @@ export default function Chat() {
               background: 'var(--surface)',
               border: '1px solid var(--border)', borderRadius: 18, padding: '5px 6px 5px 8px',
               display: 'flex', alignItems: 'center', gap: 6,
+              opacity: usage && !usage.canSend ? 0.5 : 1,
             }}>
               <input
                 ref={fileInputRef}
@@ -464,7 +527,7 @@ export default function Chat() {
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
-                disabled={sending}
+                disabled={sending || (usage && !usage.canSend)}
                 title="Attach an image or file"
                 style={{
                   width: 34, height: 34, borderRadius: 10, flexShrink: 0, color: 'var(--ink-soft)',
@@ -478,8 +541,8 @@ export default function Chat() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
-                placeholder="Message Fintly AI Agent…"
-                disabled={sending}
+                placeholder={usage && !usage.canSend ? 'Daily limit reached — request more above' : 'Message Fintly AI Agent…'}
+                disabled={sending || (usage && !usage.canSend)}
                 style={{
                   flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
                   color: 'var(--ink)', fontSize: 16, padding: '9px 0',
@@ -501,7 +564,7 @@ export default function Chat() {
               ) : (
                 <button
                   onClick={() => send()}
-                  disabled={!input.trim() && !pendingAttachment}
+                  disabled={(!input.trim() && !pendingAttachment) || (usage && !usage.canSend)}
                   style={{
                     width: 38, height: 38, borderRadius: 12, flexShrink: 0,
                     background: (input.trim() || pendingAttachment) ? 'var(--accent-gradient)' : 'var(--surface-2)',
@@ -519,6 +582,8 @@ export default function Chat() {
           </div>
         </div>
       </div>
+
+      {showRequestModal && <RequestTokensModal onClose={() => setShowRequestModal(false)} />}
     </div>
   );
 }
