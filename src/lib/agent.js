@@ -2,7 +2,7 @@
 // The actual API keys and multi-model orchestration all happen server-side
 // (api/agent.js) so your 5 free API keys are never exposed to the browser.
 
-export async function getFintlyResponse(conversationMessages) {
+export async function getFintlyResponse(conversationMessages, { signal } = {}) {
   // Convert our stored { role, text, ts } shape into the { role, content } shape
   // the backend (and each AI provider) expects.
   const messages = conversationMessages.map((m) => ({
@@ -14,6 +14,7 @@ export async function getFintlyResponse(conversationMessages) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages }),
+    signal,
   });
 
   if (!res.ok) {
@@ -25,5 +26,7 @@ export async function getFintlyResponse(conversationMessages) {
     throw new Error('agent_empty_reply');
   }
 
-  return data.reply;
+  // Returns the full metadata object so the UI can show a "Fintly Pro consulted
+  // N engines" transparency panel — { reply, modelsUsed, totalEngines, elapsedMs, engineTimings }.
+  return data;
 }
