@@ -1,35 +1,8 @@
-// Client-side helper that talks to our serverless /api/agent endpoint.
-// The actual API keys and multi-model orchestration all happen server-side
-// (api/agent.js) so your 5 free API keys are never exposed to the browser.
+// The single account allowed to see the Admin Panel and approve/reject token
+// requests. Kept as a plain constant (not a Firestore-stored role) so it can
+// never be tampered with by any user, including the admin's own account data.
+export const ADMIN_EMAIL = 'toolsaayushman@gmail.com';
 
-export async function getFintlyResponse(conversationMessages, { signal, customInstructions, memories, imageAttachment } = {}) {
-  // Convert our stored { role, text, ts } shape into the { role, content } shape
-  // the backend (and each AI provider) expects. If a message carries an
-  // `apiText` (e.g. a text-file attachment's extracted content folded in),
-  // that fuller text is sent to the AI instead of the shorter `text` shown
-  // on-screen in the chat bubble.
-  const messages = conversationMessages.map((m) => ({
-    role: m.role,
-    content: m.apiText || m.text,
-  }));
-
-  const res = await fetch('/api/agent', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, customInstructions, memories, imageAttachment }),
-    signal,
-  });
-
-  if (!res.ok) {
-    throw new Error('agent_request_failed');
-  }
-
-  const data = await res.json();
-  if (!data || !data.reply) {
-    throw new Error('agent_empty_reply');
-  }
-
-  // Returns the full metadata object so the UI can show a "Fintly Pro consulted
-  // N engines" transparency panel — { reply, modelsUsed, totalEngines, elapsedMs, engineTimings }.
-  return data;
+export function isAdmin(user) {
+  return !!user && user.email === ADMIN_EMAIL;
 }
