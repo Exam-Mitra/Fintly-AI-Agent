@@ -6,10 +6,12 @@ import SuggestionCards from '../components/SuggestionCards.jsx';
 import MessageActions from '../components/MessageActions.jsx';
 import EngineStatus from '../components/EngineStatus.jsx';
 import QuickActions from '../components/QuickActions.jsx';
+import AttachmentChip from '../components/AttachmentChip.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { createConversation, getConversation, saveMessages, newConversationId } from '../lib/conversations.js';
 import { getFintlyResponse } from '../lib/agent.js';
 import { watchProfile, addMemory } from '../lib/profile.js';
+import { processAttachedFile } from '../lib/attachments.js';
 
 const MenuIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -29,6 +31,11 @@ const StopIcon = () => (
 const EditIcon = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
     <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </svg>
+);
+const PaperclipIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
   </svg>
 );
 
@@ -76,8 +83,11 @@ export default function Chat() {
   const [editingIndex, setEditingIndex] = useState(null);
   const [editText, setEditText] = useState('');
   const [profile, setProfile] = useState({ customInstructions: '', memories: [] });
+  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [attachError, setAttachError] = useState('');
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
   const currentIdRef = useRef(conversationId || null);
   const abortRef = useRef(null);
   // When we create a brand-new conversation ourselves and navigate to its URL,
@@ -119,7 +129,7 @@ export default function Chat() {
     return unsub;
   }, [user]);
 
-  const sendMessage = async (baseMessages, conversationDocId) => {
+  const sendMessage = async (baseMessages, conversationDocId, imageAttachment) => {
     setSending(true);
     const controller = new AbortController();
     abortRef.current = controller;
@@ -128,6 +138,7 @@ export default function Chat() {
         signal: controller.signal,
         customInstructions: profile.customInstructions,
         memories: profile.memories,
+        imageAttachment,
       });
       const botMsg = {
         role: 'assistant',
@@ -157,14 +168,63 @@ export default function Chat() {
     }
   };
 
+  const handleFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    setAttachError('');
+    try {
+      const processed = await processAttachedFile(file);
+      setPendingAttachment(processed);
+    } catch (err) {
+      setAttachError(err.message || 'Could not attach that file.');
+      setTimeout(() => setAttachError(''), 4000);
+    }
+  };
+
+  const removePendingAttachment = () => setPendingAttachment(null);
+
   const send = async (textOverride) => {
-    const text = (textOverride ?? input).trim();
-    if (!text || sending) return;
+    const typed = (textOverride ?? input).trim();
+    const attachment = pendingAttachment;
+    if (!typed && !attachment) return;
+    if (sending) return;
     setInput('');
+    setPendingAttachment(null);
 
-    maybeSaveAsMemory(text);
+    if (!attachment) maybeSaveAsMemory(typed);
 
-    const userMsg = { role: 'user', text, ts: Date.now(), animate: false };
+    // Build the message the user sees, and (if needed) a separate apiText
+    // that's actually sent to the AI — e.g. a text file's extracted content
+    // gets folded into apiText but never shown as a giant wall of text in
+    // the chat bubble itself, only the filename chip is shown.
+    let displayText = typed;
+    let apiText = typed;
+    let attachmentMeta = null;
+    let imageAttachment = null;
+
+    if (attachment?.kind === 'image') {
+      displayText = typed || 'What can you tell me about this image?';
+      apiText = displayText;
+      attachmentMeta = { kind: 'image', name: attachment.name };
+      imageAttachment = { mimeType: attachment.mimeType, dataBase64: attachment.dataBase64 };
+    } else if (attachment?.kind === 'text') {
+      displayText = typed || `Please review the attached file: ${attachment.name}`;
+      apiText = `${displayText}\n\n--- Attached file: ${attachment.name} ---\n${attachment.content}\n--- End of attached file ---`;
+      attachmentMeta = { kind: 'text', name: attachment.name };
+    }
+
+    // Firestore rejects `undefined` field values, so we only add `apiText`
+    // to the object when it's actually different from the displayed text
+    // (never set it to `undefined` directly).
+    const userMsg = {
+      role: 'user',
+      text: displayText,
+      attachment: attachmentMeta,
+      ts: Date.now(),
+      animate: false,
+      ...(apiText !== displayText ? { apiText } : {}),
+    };
     const updated = [...messages, userMsg];
     setMessages(updated);
 
@@ -173,11 +233,11 @@ export default function Chat() {
       id = newConversationId();
       currentIdRef.current = id;
       skipNextLoadRef.current = true;
-      await createConversation(user.uid, id, text);
+      await createConversation(user.uid, id, displayText);
       navigate(`/chat/${id}`, { replace: true });
     }
 
-    sendMessage(updated, id);
+    sendMessage(updated, id, imageAttachment);
   };
 
   const stopGenerating = () => {
@@ -304,6 +364,12 @@ export default function Chat() {
                         </div>
                       ) : (
                         <>
+                          {m.role === 'user' && m.attachment && (
+                            <div style={{ marginBottom: 6, display: 'flex', justifyContent: 'flex-end' }}>
+                              <AttachmentChip name={m.attachment.name} kind={m.attachment.kind} />
+                            </div>
+                          )}
+
                           <div style={{
                             background: m.role === 'user' ? 'var(--surface-2)' : 'var(--surface)',
                             border: m.role === 'assistant' ? '1px solid var(--border)' : 'none',
@@ -368,50 +434,85 @@ export default function Chat() {
         </div>
 
         <div style={{ padding: '12px 14px calc(16px + env(safe-area-inset-bottom))', flexShrink: 0 }}>
-          <div style={{
-            maxWidth: 720, margin: '0 auto', background: 'var(--surface)',
-            border: '1px solid var(--border)', borderRadius: 18, padding: '5px 6px 5px 16px',
-            display: 'flex', alignItems: 'center', gap: 8,
-          }}>
-            <input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
-              placeholder="Message Fintly AI Agent…"
-              disabled={sending}
-              style={{
-                flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
-                color: 'var(--ink)', fontSize: 16, padding: '9px 0',
-              }}
-            />
-            {sending ? (
-              <button
-                onClick={stopGenerating}
-                title="Stop generating"
-                style={{
-                  width: 38, height: 38, borderRadius: 12, flexShrink: 0,
-                  background: 'var(--surface-2)', color: 'var(--ink)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  border: '1px solid var(--border)',
-                }}
-              >
-                <StopIcon />
-              </button>
-            ) : (
-              <button
-                onClick={() => send()}
-                disabled={!input.trim()}
-                style={{
-                  width: 38, height: 38, borderRadius: 12, flexShrink: 0,
-                  background: input.trim() ? 'var(--accent-gradient)' : 'var(--surface-2)',
-                  color: input.trim() ? '#0F1115' : 'var(--ink-faint)',
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-              >
-                <SendIcon />
-              </button>
+          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            {attachError && (
+              <div style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 8, padding: '0 4px' }}>
+                {attachError}
+              </div>
             )}
+            {pendingAttachment && (
+              <div style={{ marginBottom: 8 }}>
+                <AttachmentChip
+                  name={pendingAttachment.name}
+                  kind={pendingAttachment.kind}
+                  previewUrl={pendingAttachment.previewUrl}
+                  onRemove={removePendingAttachment}
+                />
+              </div>
+            )}
+            <div style={{
+              background: 'var(--surface)',
+              border: '1px solid var(--border)', borderRadius: 18, padding: '5px 6px 5px 8px',
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.txt,.md,.markdown,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.java,.c,.cpp,.cs,.go,.rb,.php,.sql,.yml,.yaml,.log"
+                onChange={handleFileSelected}
+                style={{ display: 'none' }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending}
+                title="Attach an image or file"
+                style={{
+                  width: 34, height: 34, borderRadius: 10, flexShrink: 0, color: 'var(--ink-soft)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <PaperclipIcon />
+              </button>
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
+                placeholder="Message Fintly AI Agent…"
+                disabled={sending}
+                style={{
+                  flex: 1, minWidth: 0, background: 'transparent', border: 'none', outline: 'none',
+                  color: 'var(--ink)', fontSize: 16, padding: '9px 0',
+                }}
+              />
+              {sending ? (
+                <button
+                  onClick={stopGenerating}
+                  title="Stop generating"
+                  style={{
+                    width: 38, height: 38, borderRadius: 12, flexShrink: 0,
+                    background: 'var(--surface-2)', color: 'var(--ink)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    border: '1px solid var(--border)',
+                  }}
+                >
+                  <StopIcon />
+                </button>
+              ) : (
+                <button
+                  onClick={() => send()}
+                  disabled={!input.trim() && !pendingAttachment}
+                  style={{
+                    width: 38, height: 38, borderRadius: 12, flexShrink: 0,
+                    background: (input.trim() || pendingAttachment) ? 'var(--accent-gradient)' : 'var(--surface-2)',
+                    color: (input.trim() || pendingAttachment) ? '#0F1115' : 'var(--ink-faint)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}
+                >
+                  <SendIcon />
+                </button>
+              )}
+            </div>
           </div>
           <div style={{ textAlign: 'center', color: 'var(--ink-faint)', fontSize: 11, marginTop: 8, padding: '0 8px' }}>
             Fintly Pro synthesizes multiple AI engines for the most accurate answer.
