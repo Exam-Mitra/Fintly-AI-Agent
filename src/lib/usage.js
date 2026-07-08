@@ -1,0 +1,111 @@
+import { doc, runTransaction, onSnapshot } from 'firebase/firestore';
+import { db } from './firebase.js';
+
+// Every user gets 50 free messages per day, plus 1 grace message shown with a
+// clear warning so they're never cut off mid-thought without notice. After
+// that, they must request more from the admin (Settings -> Request More
+// Tokens, or the locked composer in Chat). Admin-granted "extra" messages
+// (from an approved request) never expire and are consumed only once the
+// daily free pool runs out. "unlimited" is a permanent admin-only flag.
+export const DAILY_LIMIT = 50;
+export const GRACE_MESSAGES = 1;
+
+function profileDoc(uid) {
+  return doc(db, 'users', uid);
+}
+
+function grantsDoc(uid) {
+  // A separate subcollection (not the main profile doc) so Firestore security
+  // rules can lock this specific document to admin-only writes, while the
+  // user can still freely edit their own customInstructions/memories on the
+  // parent profile doc.
+  return doc(db, 'users', uid, 'grants', 'status');
+}
+
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// Live-subscribes to both the daily usage counter and the admin-controlled
+// grants, combining them into one derived snapshot the UI can react to.
+export function watchUsage(uid, callback) {
+  let profileLoaded = false;
+  let grantsLoaded = false;
+  let latestProfile = {};
+  let latestGrants = {};
+
+  const emit = () => {
+    if (!profileLoaded || !grantsLoaded) return;
+
+    const unlimited = !!latestGrants.unlimited;
+    const today = todayStr();
+    const dailyUsed = latestProfile.usage?.date === today ? (latestProfile.usage.count || 0) : 0;
+    const dailyCap = DAILY_LIMIT + GRACE_MESSAGES;
+    const dailyRemaining = Math.max(0, dailyCap - dailyUsed);
+    const extraMessages = latestGrants.extraMessages || 0;
+
+    callback({
+      dailyUsed,
+      dailyCap,
+      dailyRemaining,
+      extraMessages,
+      unlimited,
+      canSend: unlimited || dailyRemaining > 0 || extraMessages > 0,
+      isLastFreeMessage: !unlimited && dailyRemaining === 1 && extraMessages === 0,
+      usingExtra: !unlimited && dailyRemaining === 0 && extraMessages > 0,
+    });
+  };
+
+  const unsub1 = onSnapshot(profileDoc(uid), (snap) => {
+    latestProfile = snap.exists() ? snap.data() : {};
+    profileLoaded = true;
+    emit();
+  });
+  const unsub2 = onSnapshot(grantsDoc(uid), (snap) => {
+    latestGrants = snap.exists() ? snap.data() : {};
+    grantsLoaded = true;
+    emit();
+  });
+
+  return () => {
+    unsub1();
+    unsub2();
+  };
+}
+
+// Atomically consumes one message credit — prefers today's free pool first,
+// then falls back to admin-granted extra messages. Wrapped in a Firestore
+// transaction so rapid double-sends (e.g. a flaky network retry) can never
+// double-count or let usage go negative.
+export async function consumeMessageCredit(uid) {
+  const pDoc = profileDoc(uid);
+  const gDoc = grantsDoc(uid);
+
+  return runTransaction(db, async (tx) => {
+    const [profileSnap, grantsSnap] = await Promise.all([tx.get(pDoc), tx.get(gDoc)]);
+    const profile = profileSnap.exists() ? profileSnap.data() : {};
+    const grants = grantsSnap.exists() ? grantsSnap.data() : {};
+
+    if (grants.unlimited) {
+      return { ok: true };
+    }
+
+    const today = todayStr();
+    const dailyUsed = profile.usage?.date === today ? (profile.usage.count || 0) : 0;
+    const dailyCap = DAILY_LIMIT + GRACE_MESSAGES;
+
+    if (dailyUsed < dailyCap) {
+      tx.set(pDoc, { usage: { date: today, count: dailyUsed + 1 } }, { merge: true });
+      return { ok: true };
+    }
+
+    const extraMessages = grants.extraMessages || 0;
+    if (extraMessages > 0) {
+      tx.set(gDoc, { extraMessages: extraMessages - 1 }, { merge: true });
+      return { ok: true };
+    }
+
+    return { ok: false };
+  });
+}
