@@ -2,18 +2,21 @@
 // The actual API keys and multi-model orchestration all happen server-side
 // (api/agent.js) so your 5 free API keys are never exposed to the browser.
 
-export async function getFintlyResponse(conversationMessages, { signal, customInstructions, memories } = {}) {
+export async function getFintlyResponse(conversationMessages, { signal, customInstructions, memories, imageAttachment } = {}) {
   // Convert our stored { role, text, ts } shape into the { role, content } shape
-  // the backend (and each AI provider) expects.
+  // the backend (and each AI provider) expects. If a message carries an
+  // `apiText` (e.g. a text-file attachment's extracted content folded in),
+  // that fuller text is sent to the AI instead of the shorter `text` shown
+  // on-screen in the chat bubble.
   const messages = conversationMessages.map((m) => ({
     role: m.role,
-    content: m.text,
+    content: m.apiText || m.text,
   }));
 
   const res = await fetch('/api/agent', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ messages, customInstructions, memories }),
+    body: JSON.stringify({ messages, customInstructions, memories, imageAttachment }),
     signal,
   });
 
