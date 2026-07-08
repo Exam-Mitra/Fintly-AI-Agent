@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { watchProfile, saveCustomInstructions, addMemory, removeMemory } from '../lib/profile.js';
+import { watchUsage } from '../lib/usage.js';
+import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const BackIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -22,6 +24,8 @@ export default function Settings() {
   const [newMemory, setNewMemory] = useState('');
   const [saved, setSaved] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [usage, setUsage] = useState(null);
+  const [showRequestModal, setShowRequestModal] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -30,6 +34,12 @@ export default function Settings() {
       setMemories(profile.memories);
       setLoaded(true);
     });
+    return unsub;
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = watchUsage(user.uid, setUsage);
     return unsub;
   }, [user]);
 
@@ -63,6 +73,53 @@ export default function Settings() {
       </div>
 
       <div style={{ maxWidth: 620, margin: '0 auto', padding: '24px 18px 60px' }}>
+        <section style={{ marginBottom: 36 }}>
+          <h2 style={{ fontSize: 15.5, marginBottom: 6 }}>Usage</h2>
+          {usage ? (
+            usage.unlimited ? (
+              <div style={{
+                background: 'var(--surface)', border: '1px solid var(--accent-blue)', borderRadius: 14,
+                padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <span style={{ fontSize: 18 }}>♾️</span>
+                <span style={{ fontSize: 14, fontWeight: 600 }}>You have unlimited messages.</span>
+              </div>
+            ) : (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>
+                    {usage.dailyUsed} of {usage.dailyCap} used today
+                  </span>
+                  {usage.extraMessages > 0 && (
+                    <span style={{ fontSize: 12.5, color: 'var(--accent-blue)', fontWeight: 600 }}>
+                      +{usage.extraMessages} bonus
+                    </span>
+                  )}
+                </div>
+                <div style={{ height: 6, background: 'var(--surface-2)', borderRadius: 6, overflow: 'hidden', marginBottom: 12 }}>
+                  <div style={{
+                    height: '100%', borderRadius: 6, background: 'var(--accent-gradient)',
+                    width: `${Math.min(100, (usage.dailyUsed / usage.dailyCap) * 100)}%`,
+                  }} />
+                </div>
+                {!usage.canSend && (
+                  <button
+                    onClick={() => setShowRequestModal(true)}
+                    style={{
+                      fontSize: 13, fontWeight: 700, color: '#0F1115', padding: '9px 18px',
+                      borderRadius: 12, background: 'var(--accent-gradient)',
+                    }}
+                  >
+                    Request More Tokens
+                  </button>
+                )}
+              </div>
+            )
+          ) : (
+            <div style={{ color: 'var(--ink-faint)', fontSize: 13 }}>Loading…</div>
+          )}
+        </section>
+
         <section style={{ marginBottom: 36 }}>
           <h2 style={{ fontSize: 15.5, marginBottom: 6 }}>Custom Instructions</h2>
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 14, lineHeight: 1.5 }}>
@@ -151,6 +208,8 @@ export default function Settings() {
           </div>
         </section>
       </div>
+
+      {showRequestModal && <RequestTokensModal onClose={() => setShowRequestModal(false)} />}
     </div>
   );
 }
