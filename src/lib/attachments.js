@@ -1,8 +1,17 @@
 // Client-side helpers for the file/image attach feature. Keeps things simple
 // and free: images go to Gemini's vision endpoint (the only one of our 5 free
-// engines that supports vision), and plain text-based files (code, notes,
-// CSV, markdown, etc.) get their text content folded directly into the
-// prompt so every engine can use them normally.
+// engines that supports vision), plain text-based files (code, notes, CSV,
+// markdown, etc.) get their text content folded directly into the prompt so
+// every engine can use them normally, and PDFs get their text extracted +
+// chunked client-side (see lib/pdfChat.js) so a user can "chat with" a whole
+// document without ever exceeding our free providers' request-size limits.
+//
+// pdfChat.js is imported statically (not dynamically) — Chat.jsx also
+// imports it directly for chunk re-selection on every follow-up question,
+// so a dynamic import here would be a no-op anyway (a module can only be
+// split into its own lazy-loaded chunk if EVERY importer treats it as
+// dynamic).
+import { extractPdfText, chunkText } from './pdfChat.js';
 
 export const MAX_TEXT_CHARS = 8000; // keep prompt payload sane across all 5 providers
 
@@ -28,6 +37,10 @@ export function isImageFile(file) {
 export function isSupportedTextFile(file) {
   const lower = file.name.toLowerCase();
   return TEXT_EXTENSIONS.some((ext) => lower.endsWith(ext)) || file.type === 'text/plain';
+}
+
+export function isPdfFile(file) {
+  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
 }
 
 function readAsDataURL(file) {
@@ -87,6 +100,17 @@ async function compressImage(file) {
 // Returns a normalized attachment object, or throws a user-facing Error
 // message if the file can't be handled (too big / unsupported type).
 export async function processAttachedFile(file) {
+  if (isPdfFile(file)) {
+    const { text, pageCount } = await extractPdfText(file);
+    return {
+      kind: 'pdf',
+      name: file.name,
+      pageCount,
+      fullText: text,
+      chunks: chunkText(text),
+    };
+  }
+
   if (isImageFile(file)) {
     const { dataUrl, base64, mimeType } = await compressImage(file);
     // Rough estimate of decoded byte size from a base64 string length.
