@@ -4,6 +4,7 @@ import { useAuth } from '../lib/AuthContext.jsx';
 import { isAdmin } from '../lib/admin.js';
 import { watchAllTokenRequests, approveTokenRequest, markRequestStatus } from '../lib/tokenRequests.js';
 import { postBroadcast, clearBroadcast, watchBroadcast } from '../lib/broadcast.js';
+import { sendPushToUser, sendPushToAllUsers } from '../lib/pushNotify.js';
 import {
   getTotalUserCount, getPendingRequestCount, getTotalConversationCount,
   getTodayMessageTotal, getHeavyUsageToday,
@@ -34,6 +35,14 @@ function RequestCard({ req }) {
     setBusy(true);
     try {
       await approveTokenRequest(req.id, req.uid, { extraMessages: parseInt(grantValue, 10) || 0 });
+      // Best-effort real push notification, in addition to the existing
+      // in-app toast (TokenRequestNotifier) — never blocks the approval
+      // itself if the user has no push subscription or it fails to send.
+      sendPushToUser(req.uid, {
+        title: 'Fintly AI Agent',
+        body: `Your token request was approved — you got +${grantValue} messages!`,
+        url: '/settings',
+      }).catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -44,6 +53,11 @@ function RequestCard({ req }) {
     setBusy(true);
     try {
       await approveTokenRequest(req.id, req.uid, { unlimited: true });
+      sendPushToUser(req.uid, {
+        title: 'Fintly AI Agent',
+        body: 'Your token request was approved — you now have unlimited messages!',
+        url: '/settings',
+      }).catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -53,6 +67,11 @@ function RequestCard({ req }) {
     setBusy(true);
     try {
       await markRequestStatus(req.id, 'rejected');
+      sendPushToUser(req.uid, {
+        title: 'Fintly AI Agent',
+        body: 'Your token request was reviewed — feel free to submit a new one if you still need more messages.',
+        url: '/settings',
+      }).catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -210,7 +229,15 @@ function BroadcastSection() {
     setBusy(true);
     try {
       await postBroadcast(draft);
+      const message = draft;
       setDraft('');
+      // Best-effort — reaches everyone who opted into push, on top of the
+      // in-app banner every signed-in user sees regardless.
+      sendPushToAllUsers({
+        title: 'Fintly AI Agent',
+        body: message,
+        url: '/',
+      }).catch(() => {});
     } finally {
       setBusy(false);
     }
