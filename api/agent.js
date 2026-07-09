@@ -17,7 +17,9 @@
 //   CEREBRAS_API_KEY
 //   HUGGINGFACE_API_KEY
 
-const BASE_SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.`;
+const BASE_SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.
+
+Always reply in the SAME language (or language mix) the user is writing in — if they write in Hindi, reply in Hindi; if they write in Hinglish (mixed Hindi-English, typically in Latin script), reply in a similarly natural Hinglish mix; if they write in English, reply in English. Only switch languages if the user explicitly asks you to.`;
 
 // Builds the final system prompt by folding in the user's saved Custom
 // Instructions and remembered facts (from Settings), so every one of the 5
@@ -205,7 +207,8 @@ Your task: Write ONE final, synthesized answer that combines the best, most accu
 Formatting rules (important):
 - Format your response in clean Markdown (headings, **bold**, bullet lists where helpful).
 - Preserve any code blocks exactly, correctly formatted with fenced code blocks and a language tag (e.g. \`\`\`python).
-- Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax [text](url) — they are not URLs and must stay as plain code text. Only use real link formatting for actual web URLs.`;
+- Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax [text](url) — they are not URLs and must stay as plain code text. Only use real link formatting for actual web URLs.
+- Reply in the same language the user's question was written in (match Hindi, Hinglish, English, etc. as appropriate) — look at the candidate answers' language too, since they were likely already answering in the right language.`;
 
   const judgeMessages = [{ role: 'user', content: judgePrompt }];
 
