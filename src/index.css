@@ -199,7 +199,11 @@ pre {
 }
 .thinking-dot:nth-child(2) { animation-delay: 0.2s; }
 .thinking-dot:nth-child(3) { animation-delay: 0.4s; }
-
+@keyframes spin-icon {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin-icon { animation: spin-icon 0.8s linear infinite; }
 /* ---------- Layout: desktop default (sidebar always visible, pushes content) ---------- */
 .app-shell {
   display: flex;
