@@ -5,6 +5,11 @@ import { watchProfile, saveCustomInstructions, addMemory, removeMemory } from '.
 import { watchUsage } from '../lib/usage.js';
 import { getStoredTheme, applyTheme } from '../lib/theme.js';
 import { getOrCreateReferralCode, buildReferralLink } from '../lib/referral.js';
+import {
+  isPushSupported, getNotificationPermission, enablePushNotifications,
+  disablePushNotifications, isPushEnabled,
+} from '../lib/push.js';
+import { estimateSavingsInr, formatInr, SAVINGS_REFERENCE } from '../lib/savings.js';
 import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const BackIcon = () => (
@@ -31,10 +36,41 @@ export default function Settings() {
   const [theme, setTheme] = useState(getStoredTheme());
   const [referralLink, setReferralLink] = useState('');
   const [referralCopied, setReferralCopied] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushError, setPushError] = useState('');
 
   const handleThemeChange = (next) => {
     setTheme(next);
     applyTheme(next);
+  };
+
+  useEffect(() => {
+    if (!isPushSupported()) return;
+    isPushEnabled().then(setPushEnabled);
+  }, []);
+
+  const handleTogglePush = async () => {
+    if (pushBusy) return;
+    setPushBusy(true);
+    setPushError('');
+    try {
+      if (pushEnabled) {
+        await disablePushNotifications(user.uid);
+        setPushEnabled(false);
+      } else {
+        const result = await enablePushNotifications(user.uid);
+        if (result.ok) {
+          setPushEnabled(true);
+        } else if (result.reason === 'denied') {
+          setPushError('Notifications were blocked — enable them for this site in your browser settings to turn this on.');
+        } else {
+          setPushError('Could not enable notifications on this device.');
+        }
+      }
+    } finally {
+      setPushBusy(false);
+    }
   };
 
   useEffect(() => {
@@ -59,7 +95,7 @@ export default function Settings() {
           url: referralLink,
         });
       } catch {
-        // user cancelled the share sheet
+        // user cancelled the share sheet — no-op
       }
     } else {
       handleCopyReferral();
@@ -158,6 +194,59 @@ export default function Settings() {
             <div style={{ color: 'var(--ink-faint)', fontSize: 13 }}>Loading…</div>
           )}
         </section>
+
+        {usage && !usage.unlimited && usage.lifetimeTotal > 0 && (
+          <section style={{ marginBottom: 36 }}>
+            <div style={{
+              background: 'var(--accent-gradient)', borderRadius: 16, padding: '18px 20px', color: '#0F1115',
+            }}>
+              <div style={{ fontSize: 12.5, fontWeight: 700, opacity: 0.75, marginBottom: 4 }}>
+                YOU'VE SAVED SO FAR
+              </div>
+              <div style={{ fontSize: 30, fontWeight: 800, marginBottom: 6 }}>
+                {formatInr(estimateSavingsInr(usage.lifetimeTotal))}
+              </div>
+              <div style={{ fontSize: 12.5, opacity: 0.85, lineHeight: 1.5 }}>
+                You've sent {usage.lifetimeTotal} messages on Fintly — free. That's roughly what
+                you'd have paid for the same usage on {SAVINGS_REFERENCE.planName}
+                {' '}(₹{SAVINGS_REFERENCE.monthlyInr}/month).
+              </div>
+            </div>
+          </section>
+        )}
+
+        {isPushSupported() && (
+          <section style={{ marginBottom: 36 }}>
+            <h2 style={{ fontSize: 15.5, marginBottom: 6 }}>Notifications</h2>
+            <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 14, lineHeight: 1.5 }}>
+              Get notified the moment your token request is approved, or when there's an important
+              announcement — even if Fintly isn't open.
+            </p>
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '14px 16px',
+            }}>
+              <span style={{ fontSize: 14, fontWeight: 600 }}>
+                {pushEnabled ? 'Push notifications are on' : 'Push notifications are off'}
+              </span>
+              <button
+                onClick={handleTogglePush}
+                disabled={pushBusy || getNotificationPermission() === 'denied'}
+                style={{
+                  fontSize: 12.5, fontWeight: 700, padding: '8px 16px', borderRadius: 20, flexShrink: 0,
+                  background: pushEnabled ? 'var(--surface-2)' : 'var(--accent-gradient)',
+                  color: pushEnabled ? 'var(--ink)' : '#0F1115',
+                  border: pushEnabled ? '1px solid var(--border)' : 'none',
+                }}
+              >
+                {pushBusy ? '...' : pushEnabled ? 'Turn Off' : 'Turn On'}
+              </button>
+            </div>
+            {pushError && (
+              <div style={{ color: 'var(--danger)', fontSize: 12.5, marginTop: 8 }}>{pushError}</div>
+            )}
+          </section>
+        )}
 
         <section style={{ marginBottom: 36 }}>
           <h2 style={{ fontSize: 15.5, marginBottom: 6 }}>Invite Friends, Get Bonus Messages</h2>
