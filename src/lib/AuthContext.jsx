@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { watchAuthState, checkRedirectResult } from './firebase.js';
+import { getPendingReferral, clearPendingReferral } from './referralCapture.js';
+import { claimReferral } from './referral.js';
 
 const AuthContext = createContext({ user: null, loading: true });
 
@@ -8,12 +10,16 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Handle the mobile redirect-based Google sign-in flow returning to the app.
     checkRedirectResult().catch(() => {});
 
     const unsubscribe = watchAuthState((firebaseUser) => {
       setUser(firebaseUser);
       setLoading(false);
+
+      const pendingCode = getPendingReferral();
+      if (firebaseUser && pendingCode) {
+        claimReferral(pendingCode, firebaseUser.uid).finally(() => clearPendingReferral());
+      }
     });
     return unsubscribe;
   }, []);
