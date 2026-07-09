@@ -15,6 +15,7 @@ import { processAttachedFile } from '../lib/attachments.js';
 import { saveAnswer } from '../lib/saved.js';
 import { exportAnswerAsPdf } from '../lib/exportPdf.js';
 import { watchUsage, consumeMessageCredit } from '../lib/usage.js';
+import { logReaction } from '../lib/reactions.js';
 import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const MenuIcon = () => (
@@ -296,6 +297,11 @@ export default function Chat() {
     exportAnswerAsPdf(text, 'fintly-answer');
   };
 
+  const handleReact = (index, value) => {
+    if (!user || !currentIdRef.current) return;
+    logReaction(user.uid, currentIdRef.current, index, value);
+  };
+
   const startEdit = (index) => {
     if (sending) return;
     setEditingIndex(index);
@@ -428,6 +434,7 @@ export default function Chat() {
                                 showRegenerate={isLastAssistant}
                                 onSave={() => handleSaveAnswer(m.text)}
                                 onExportPdf={() => handleExportPdf(m.text)}
+                                onReact={(value) => handleReact(i, value)}
                               />
                             )}
                             {m.role === 'user' && !sending && (
