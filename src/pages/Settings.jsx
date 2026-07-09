@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { watchProfile, saveCustomInstructions, addMemory, removeMemory } from '../lib/profile.js';
 import { watchUsage } from '../lib/usage.js';
+import { getStoredTheme, applyTheme } from '../lib/theme.js';
 import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const BackIcon = () => (
@@ -26,6 +27,12 @@ export default function Settings() {
   const [loaded, setLoaded] = useState(false);
   const [usage, setUsage] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [theme, setTheme] = useState(getStoredTheme());
+
+  const handleThemeChange = (next) => {
+    setTheme(next);
+    applyTheme(next);
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -118,6 +125,36 @@ export default function Settings() {
           ) : (
             <div style={{ color: 'var(--ink-faint)', fontSize: 13 }}>Loading…</div>
           )}
+        </section>
+
+        <section style={{ marginBottom: 36 }}>
+          <h2 style={{ fontSize: 15.5, marginBottom: 6 }}>Appearance</h2>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => handleThemeChange('dark')}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: '12px 0', borderRadius: 12, fontSize: 13.5, fontWeight: 600,
+                background: theme === 'dark' ? 'var(--accent-gradient)' : 'var(--surface)',
+                color: theme === 'dark' ? '#0F1115' : 'var(--ink-soft)',
+                border: theme === 'dark' ? 'none' : '1px solid var(--border)',
+              }}
+            >
+              🌙 Dark
+            </button>
+            <button
+              onClick={() => handleThemeChange('light')}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                padding: '12px 0', borderRadius: 12, fontSize: 13.5, fontWeight: 600,
+                background: theme === 'light' ? 'var(--accent-gradient)' : 'var(--surface)',
+                color: theme === 'light' ? '#0F1115' : 'var(--ink-soft)',
+                border: theme === 'light' ? 'none' : '1px solid var(--border)',
+              }}
+            >
+              ☀️ Light
+            </button>
+          </div>
         </section>
 
         <section style={{ marginBottom: 36 }}>
