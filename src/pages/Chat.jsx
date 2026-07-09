@@ -5,6 +5,7 @@ import StreamingMessage from '../components/StreamingMessage.jsx';
 import SuggestionCards from '../components/SuggestionCards.jsx';
 import MessageActions from '../components/MessageActions.jsx';
 import EngineStatus from '../components/EngineStatus.jsx';
+import SourcesList from '../components/SourcesList.jsx';
 import QuickActions from '../components/QuickActions.jsx';
 import AttachmentChip from '../components/AttachmentChip.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
@@ -16,6 +17,8 @@ import { saveAnswer } from '../lib/saved.js';
 import { exportAnswerAsPdf } from '../lib/exportPdf.js';
 import { watchUsage, consumeMessageCredit } from '../lib/usage.js';
 import { logReaction } from '../lib/reactions.js';
+import { startListening, isSpeechRecognitionSupported } from '../lib/voice.js';
+import { isOnline, queueMessage, getQueuedMessages, removeQueuedMessage, onBackOnline } from '../lib/offlineQueue.js';
 import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const MenuIcon = () => (
@@ -41,6 +44,12 @@ const EditIcon = () => (
 const PaperclipIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
     <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  </svg>
+);
+const MicIcon = ({ active }) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--danger)' : 'currentColor'} strokeWidth="2">
+    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+    <path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" />
   </svg>
 );
 
@@ -92,11 +101,15 @@ export default function Chat() {
   const [attachError, setAttachError] = useState('');
   const [usage, setUsage] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [offline, setOffline] = useState(!isOnline());
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
   const currentIdRef = useRef(conversationId || null);
   const abortRef = useRef(null);
+  const stopListeningRef = useRef(null);
+  const sendRef = useRef(null); // always points at the latest `send` closure, to avoid stale state in the offline-retry listener below
   // When we create a brand-new conversation ourselves and navigate to its URL,
   // we must NOT let the "load conversation from Firestore" effect below
   // immediately overwrite the in-memory messages we already have (which include
@@ -129,6 +142,34 @@ export default function Chat() {
   }, [messages, sending]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => stopListeningRef.current?.(), []);
+
+  // Tracks browser connectivity and, the moment we come back online, retries
+  // any messages that failed to send while offline (queued via
+  // lib/offlineQueue.js). Only queued messages belonging to the conversation
+  // currently open are retried automatically here — messages queued for
+  // other conversations will be retried the next time those chats are opened.
+  useEffect(() => {
+    const handleOffline = () => setOffline(true);
+    const handleOnline = () => setOffline(false);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
+
+    const unsubBackOnline = onBackOnline(() => {
+      const queued = getQueuedMessages().filter((m) => m.conversationId === currentIdRef.current);
+      queued.forEach((q) => {
+        removeQueuedMessage(q.id);
+        sendRef.current?.(q.text);
+      });
+    });
+
+    return () => {
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', handleOnline);
+      unsubBackOnline();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!user) return;
@@ -164,6 +205,7 @@ export default function Chat() {
           elapsedMs: data.elapsedMs,
           engineTimings: data.engineTimings,
         },
+        sources: data.sources || [],
       };
       const finalMessages = [...baseMessages, botMsg];
       setMessages(finalMessages);
@@ -197,11 +239,41 @@ export default function Chat() {
 
   const removePendingAttachment = () => setPendingAttachment(null);
 
+  const toggleListening = () => {
+    if (listening) {
+      stopListeningRef.current?.();
+      setListening(false);
+      return;
+    }
+    setListening(true);
+    stopListeningRef.current = startListening({
+      onResult: (transcript) => {
+        setInput((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      },
+      onError: () => setAttachError('Voice input failed — please try again or type instead.'),
+      onEnd: () => setListening(false),
+    });
+  };
+
   const send = async (textOverride) => {
     const typed = (textOverride ?? input).trim();
     const attachment = pendingAttachment;
     if (!typed && !attachment) return;
     if (sending) return;
+
+    // No internet right now — queue the plain-text message locally and bail
+    // out early rather than letting the request fail with a confusing error.
+    // It will be automatically retried the moment connectivity returns (see
+    // the `online` listener above). Attachments aren't queued (base64 image
+    // payloads are too large to sit safely in localStorage) — those still
+    // just show the normal error path if offline.
+    if (!isOnline() && !attachment) {
+      queueMessage({ conversationId: currentIdRef.current, text: typed });
+      setInput('');
+      setAttachError('You appear to be offline — this message will send automatically once you\'re back online.');
+      setTimeout(() => setAttachError(''), 5000);
+      return;
+    }
 
     // Enforce the daily message limit (server-verified via a Firestore
     // transaction so it can't be bypassed by editing client-side state).
@@ -265,6 +337,10 @@ export default function Chat() {
 
     sendMessage(updated, id, imageAttachment);
   };
+
+  useEffect(() => {
+    sendRef.current = send;
+  });
 
   const stopGenerating = () => {
     abortRef.current?.abort();
@@ -424,6 +500,8 @@ export default function Chat() {
                             )}
                           </div>
 
+                          {m.role === 'assistant' && <SourcesList sources={m.sources} />}
+
                           {m.role === 'assistant' && isLastAssistant && <EngineStatus meta={m.meta} />}
 
                           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, marginLeft: m.role === 'user' ? 0 : 4, marginRight: m.role === 'user' ? 4 : 0, justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
@@ -478,6 +556,14 @@ export default function Chat() {
 
         <div style={{ padding: '12px 14px calc(16px + env(safe-area-inset-bottom))', flexShrink: 0 }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
+            {offline && (
+              <div style={{
+                color: '#FFD98A', fontSize: 12.5, marginBottom: 8, padding: '8px 12px',
+                background: 'rgba(255, 217, 138, 0.1)', border: '1px solid rgba(255, 217, 138, 0.3)', borderRadius: 10,
+              }}>
+                📡 You're offline. Messages you send now will queue and go out automatically once you're back online.
+              </div>
+            )}
             {attachError && (
               <div style={{ color: 'var(--danger)', fontSize: 12.5, marginBottom: 8, padding: '0 4px' }}>
                 {attachError}
@@ -543,6 +629,21 @@ export default function Chat() {
               >
                 <PaperclipIcon />
               </button>
+              {isSpeechRecognitionSupported() && (
+                <button
+                  onClick={toggleListening}
+                  disabled={sending || (usage && !usage.canSend)}
+                  title={listening ? 'Stop listening' : 'Speak your message'}
+                  style={{
+                    width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+                    color: listening ? 'var(--danger)' : 'var(--ink-soft)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: listening ? 'rgba(255,138,138,0.12)' : 'transparent',
+                  }}
+                >
+                  <MicIcon active={listening} />
+                </button>
+              )}
               <input
                 ref={inputRef}
                 value={input}
