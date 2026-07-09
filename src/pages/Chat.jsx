@@ -8,6 +8,7 @@ import EngineStatus from '../components/EngineStatus.jsx';
 import SourcesList from '../components/SourcesList.jsx';
 import QuickActions from '../components/QuickActions.jsx';
 import AttachmentChip from '../components/AttachmentChip.jsx';
+import ShareChatButton from '../components/ShareChatButton.jsx';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { createConversation, getConversation, saveMessages, newConversationId } from '../lib/conversations.js';
 import { getFintlyResponse } from '../lib/agent.js';
@@ -19,6 +20,7 @@ import { watchUsage, consumeMessageCredit } from '../lib/usage.js';
 import { logReaction } from '../lib/reactions.js';
 import { startListening, isSpeechRecognitionSupported } from '../lib/voice.js';
 import { isOnline, queueMessage, getQueuedMessages, removeQueuedMessage, onBackOnline } from '../lib/offlineQueue.js';
+import { selectRelevantChunks, buildPdfContext } from '../lib/pdfChat.js';
 import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const MenuIcon = () => (
@@ -103,6 +105,7 @@ export default function Chat() {
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [listening, setListening] = useState(false);
   const [offline, setOffline] = useState(!isOnline());
+  const [pdfContext, setPdfContext] = useState(null); // { name, pageCount } — just for the UI chip; the actual chunks live in pdfChunksRef
   const scrollRef = useRef(null);
   const inputRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -110,6 +113,11 @@ export default function Chat() {
   const abortRef = useRef(null);
   const stopListeningRef = useRef(null);
   const sendRef = useRef(null); // always points at the latest `send` closure, to avoid stale state in the offline-retry listener below
+  // Holds the currently-attached PDF's extracted text chunks so every
+  // follow-up question in this conversation can keep referencing the same
+  // document (re-selecting whichever chunks are most relevant to THAT
+  // question) without re-uploading or re-extracting the PDF each time.
+  const pdfChunksRef = useRef(null); // { name, chunks: string[] } | null
   // When we create a brand-new conversation ourselves and navigate to its URL,
   // we must NOT let the "load conversation from Firestore" effect below
   // immediately overwrite the in-memory messages we already have (which include
@@ -123,6 +131,13 @@ export default function Chat() {
       skipNextLoadRef.current = false;
       return;
     }
+
+    // A PDF's extracted chunks live only in memory for the conversation the
+    // user attached it to — navigating away to a different (or brand-new,
+    // non-self-created) chat should drop that reference rather than let a
+    // stale document silently keep influencing an unrelated conversation.
+    pdfChunksRef.current = null;
+    setPdfContext(null);
 
     if (!conversationId) {
       setMessages([]);
@@ -230,7 +245,17 @@ export default function Chat() {
     setAttachError('');
     try {
       const processed = await processAttachedFile(file);
-      setPendingAttachment(processed);
+      if (processed.kind === 'pdf') {
+        // A PDF replaces any earlier PDF context for this conversation —
+        // only one "active document" at a time keeps the chunk-selection
+        // logic simple and avoids silently mixing content from two
+        // unrelated documents into one answer.
+        pdfChunksRef.current = { name: processed.name, chunks: processed.chunks };
+        setPdfContext({ name: processed.name, pageCount: processed.pageCount });
+        setPendingAttachment(null);
+      } else {
+        setPendingAttachment(processed);
+      }
     } catch (err) {
       setAttachError(err.message || 'Could not attach that file.');
       setTimeout(() => setAttachError(''), 4000);
@@ -238,6 +263,11 @@ export default function Chat() {
   };
 
   const removePendingAttachment = () => setPendingAttachment(null);
+
+  const removePdfContext = () => {
+    pdfChunksRef.current = null;
+    setPdfContext(null);
+  };
 
   const toggleListening = () => {
     if (listening) {
@@ -258,7 +288,7 @@ export default function Chat() {
   const send = async (textOverride) => {
     const typed = (textOverride ?? input).trim();
     const attachment = pendingAttachment;
-    if (!typed && !attachment) return;
+    if (!typed && !attachment && !pdfChunksRef.current) return;
     if (sending) return;
 
     // No internet right now — queue the plain-text message locally and bail
@@ -267,7 +297,7 @@ export default function Chat() {
     // the `online` listener above). Attachments aren't queued (base64 image
     // payloads are too large to sit safely in localStorage) — those still
     // just show the normal error path if offline.
-    if (!isOnline() && !attachment) {
+    if (!isOnline() && !attachment && !pdfChunksRef.current) {
       queueMessage({ conversationId: currentIdRef.current, text: typed });
       setInput('');
       setAttachError('You appear to be offline — this message will send automatically once you\'re back online.');
@@ -310,6 +340,15 @@ export default function Chat() {
       displayText = typed || `Please review the attached file: ${attachment.name}`;
       apiText = `${displayText}\n\n--- Attached file: ${attachment.name} ---\n${attachment.content}\n--- End of attached file ---`;
       attachmentMeta = { kind: 'text', name: attachment.name };
+    } else if (pdfChunksRef.current) {
+      // A PDF is "attached" to this whole conversation (not just one
+      // message) — every question re-selects whichever excerpts of the
+      // document are most relevant to THAT specific question, so a 40-page
+      // PDF never has to be resent in full on every single follow-up.
+      displayText = typed || `What can you tell me about ${pdfChunksRef.current.name}?`;
+      const relevant = selectRelevantChunks(pdfChunksRef.current.chunks, displayText);
+      apiText = `${displayText}\n\n${buildPdfContext(pdfChunksRef.current.name, relevant)}`;
+      attachmentMeta = { kind: 'pdf', name: pdfChunksRef.current.name };
     }
 
     // Firestore rejects `undefined` field values, so we only add `apiText`
@@ -414,10 +453,15 @@ export default function Chat() {
           <button onClick={() => setSidebarOpen((v) => !v)} style={{ color: 'var(--ink-soft)', flexShrink: 0 }}>
             <MenuIcon />
           </button>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 15 }}>
-            <img src="/logo.svg" alt="" style={{ width: 20, height: 20 }} />
-            <span className="gradient-text">Fintly AI Agent</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 700, fontSize: 15, flex: 1, minWidth: 0 }}>
+            <img src="/logo.svg" alt="" style={{ width: 20, height: 20, flexShrink: 0 }} />
+            <span className="gradient-text" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Fintly AI Agent</span>
           </div>
+          <ShareChatButton
+            title={messages[0]?.text || 'Fintly AI Agent chat'}
+            messages={messages}
+            disabled={messages.length === 0}
+          />
         </div>
 
         <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '20px 14px', WebkitOverflowScrolling: 'touch' }}>
@@ -605,6 +649,15 @@ export default function Chat() {
                 />
               </div>
             )}
+            {pdfContext && (
+              <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <AttachmentChip
+                  name={`${pdfContext.name} (${pdfContext.pageCount} pages) — active for this chat`}
+                  kind="pdf"
+                  onRemove={removePdfContext}
+                />
+              </div>
+            )}
             <div style={{
               background: 'var(--surface)',
               border: '1px solid var(--border)', borderRadius: 18, padding: '5px 6px 5px 8px',
@@ -614,14 +667,14 @@ export default function Chat() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.txt,.md,.markdown,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.java,.c,.cpp,.cs,.go,.rb,.php,.sql,.yml,.yaml,.log"
+                accept="image/*,.pdf,.txt,.md,.markdown,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.java,.c,.cpp,.cs,.go,.rb,.php,.sql,.yml,.yaml,.log"
                 onChange={handleFileSelected}
                 style={{ display: 'none' }}
               />
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={sending || (usage && !usage.canSend)}
-                title="Attach an image or file"
+                title="Attach an image, PDF, or text file"
                 style={{
                   width: 34, height: 34, borderRadius: 10, flexShrink: 0, color: 'var(--ink-soft)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -672,11 +725,11 @@ export default function Chat() {
               ) : (
                 <button
                   onClick={() => send()}
-                  disabled={(!input.trim() && !pendingAttachment) || (usage && !usage.canSend)}
+                  disabled={(!input.trim() && !pendingAttachment && !pdfContext) || (usage && !usage.canSend)}
                   style={{
                     width: 38, height: 38, borderRadius: 12, flexShrink: 0,
-                    background: (input.trim() || pendingAttachment) ? 'var(--accent-gradient)' : 'var(--surface-2)',
-                    color: (input.trim() || pendingAttachment) ? '#0F1115' : 'var(--ink-faint)',
+                    background: (input.trim() || pendingAttachment || pdfContext) ? 'var(--accent-gradient)' : 'var(--surface-2)',
+                    color: (input.trim() || pendingAttachment || pdfContext) ? '#0F1115' : 'var(--ink-faint)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}
                 >
