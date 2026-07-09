@@ -9,6 +9,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  getAdditionalUserInfo,
 } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
@@ -31,8 +32,6 @@ function isMobileDevice() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
-// Popups are unreliable on mobile browsers (often silently blocked or never resolve).
-// Use redirect-based sign-in on mobile, and popup on desktop for a smoother experience.
 export function loginWithGoogle() {
   if (isMobileDevice()) {
     return signInWithRedirect(auth, googleProvider);
@@ -42,6 +41,12 @@ export function loginWithGoogle() {
 
 export function checkRedirectResult() {
   return getRedirectResult(auth);
+}
+
+export function isNewAccount(credentialOrNull) {
+  if (!credentialOrNull) return false;
+  const info = getAdditionalUserInfo(credentialOrNull);
+  return !!info?.isNewUser;
 }
 
 export function loginWithEmail(email, password) {
