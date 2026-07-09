@@ -23,6 +23,28 @@
   --sidebar-width: 260px;
 }
 
+/* ---------- Light theme override ---------- */
+/* Toggled via document.documentElement.setAttribute('data-theme', 'light')
+   from Settings, persisted in localStorage so it survives reloads without
+   needing a Firestore round-trip. All components use the same CSS variables,
+   so no component code needs to know which theme is active. */
+:root[data-theme='light'] {
+  --bg: #F7F8FA;
+  --bg-elevated: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface-2: #EFF1F5;
+  --border: rgba(15,17,21,0.10);
+  --border-soft: rgba(15,17,21,0.06);
+  --ink: #14161A;
+  --ink-soft: #5B606B;
+  --ink-faint: #9198A3;
+  --danger: #D64545;
+  --success: #1E9E5A;
+}
+:root[data-theme='light'] .markdown-body .inline-code {
+  color: #B25E00;
+}
+
 * { box-sizing: border-box; }
 
 html, body {
@@ -142,6 +164,7 @@ pre {
   padding: 0;
   color: #D8DEE9;
 }
+
 
 .gradient-text {
   background: var(--accent-gradient);
