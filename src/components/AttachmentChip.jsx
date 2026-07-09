@@ -13,6 +13,12 @@ const FileIcon = () => (
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
   </svg>
 );
+const PdfIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" />
+    <path d="M9 15h1.5a1.5 1.5 0 0 0 0-3H9v5M13 12v5M13 13.5h1.2M17 12v5" strokeWidth="1.3" />
+  </svg>
+);
 const CloseIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4">
     <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
@@ -30,7 +36,7 @@ export default function AttachmentChip({ name, kind, previewUrl, onRemove }) {
       {previewUrl ? (
         <img src={previewUrl} alt="" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
       ) : (
-        kind === 'image' ? <ImageIcon /> : <FileIcon />
+        kind === 'image' ? <ImageIcon /> : kind === 'pdf' ? <PdfIcon /> : <FileIcon />
       )}
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{name}</span>
       {onRemove && (
