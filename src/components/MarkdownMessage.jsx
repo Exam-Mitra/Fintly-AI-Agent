@@ -28,6 +28,15 @@ export default function MarkdownMessage({ text }) {
 
             return <CodeBlock code={codeString} language={match ? match[1] : ''} />;
           },
+          // Wrap every table in a horizontally-scrollable container so wide
+          // tables never force individual words/letters to wrap vertically
+          // inside narrow columns on small phone screens — the table keeps
+          // its natural width and the user just swipes sideways to see more.
+          table: ({ node, ...props }) => (
+            <div className="markdown-table-wrap">
+              <table {...props} />
+            </div>
+          ),
         }}
       >
         {text}
