@@ -3,6 +3,11 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext.jsx';
 import { isAdmin } from '../lib/admin.js';
 import { watchAllTokenRequests, approveTokenRequest, markRequestStatus } from '../lib/tokenRequests.js';
+import { postBroadcast, clearBroadcast, watchBroadcast } from '../lib/broadcast.js';
+import {
+  getTotalUserCount, getPendingRequestCount, getTotalConversationCount,
+  getTodayMessageTotal, getHeavyUsageToday,
+} from '../lib/analytics.js';
 
 const BackIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -118,6 +123,151 @@ function RequestCard({ req }) {
   );
 }
 
+function StatCard({ label, value }) {
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14,
+      padding: '14px 16px', flex: 1, minWidth: 120,
+    }}>
+      <div style={{ fontSize: 22, fontWeight: 700 }}>{value === null ? '…' : value}</div>
+      <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+
+function AnalyticsSection() {
+  const [stats, setStats] = useState(null);
+  const [heavyUsers, setHeavyUsers] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadStats = async () => {
+    setLoading(true);
+    try {
+      const [users, pending, conversations, messagesToday, heavy] = await Promise.all([
+        getTotalUserCount(),
+        getPendingRequestCount(),
+        getTotalConversationCount(),
+        getTodayMessageTotal(),
+        getHeavyUsageToday(),
+      ]);
+      setStats({ users, pending, conversations, messagesToday });
+      setHeavyUsers(heavy);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStats();
+  }, []);
+
+  return (
+    <div style={{ marginBottom: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 15 }}>Analytics</h2>
+        <button onClick={loadStats} disabled={loading} style={{ fontSize: 12, color: 'var(--accent-blue)', fontWeight: 600 }}>
+          {loading ? 'Refreshing…' : 'Refresh'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+        <StatCard label="Total Users" value={stats?.users ?? null} />
+        <StatCard label="Messages Today" value={stats?.messagesToday ?? null} />
+        <StatCard label="Total Conversations" value={stats?.conversations ?? null} />
+        <StatCard label="Pending Requests" value={stats?.pending ?? null} />
+      </div>
+
+      {heavyUsers && heavyUsers.length > 0 && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--danger)', borderRadius: 14, padding: '14px 16px' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8, color: 'var(--danger)' }}>
+            ⚠️ Heavy usage today ({heavyUsers.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {heavyUsers.map((u) => (
+              <div key={u.uid} style={{ fontSize: 12.5, color: 'var(--ink-soft)', display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontFamily: 'var(--font-mono)' }}>{u.uid}</span>
+                <span>{u.count} messages</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BroadcastSection() {
+  const [current, setCurrent] = useState(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const unsub = watchBroadcast(setCurrent);
+    return unsub;
+  }, []);
+
+  const handlePost = async () => {
+    if (!draft.trim()) return;
+    setBusy(true);
+    try {
+      await postBroadcast(draft);
+      setDraft('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleClear = async () => {
+    setBusy(true);
+    try {
+      await clearBroadcast();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{ marginBottom: 32 }}>
+      <h2 style={{ fontSize: 15, marginBottom: 12 }}>Broadcast Announcement</h2>
+      <p style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
+        Shown as a banner to every signed-in user until they dismiss it.
+      </p>
+      {current?.message && (
+        <div style={{
+          background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10,
+          padding: '10px 12px', marginBottom: 10, fontSize: 13,
+        }}>
+          Currently live: "{current.message}"
+        </div>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="e.g. New feature: voice input is now live!"
+          style={{
+            flex: 1, background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '10px 12px', color: 'var(--ink)', fontSize: 13.5, outline: 'none',
+          }}
+        />
+        <button onClick={handlePost} disabled={busy || !draft.trim()} style={{
+          fontSize: 12.5, fontWeight: 700, color: '#0F1115', padding: '0 16px',
+          borderRadius: 10, background: 'var(--accent-gradient)', flexShrink: 0,
+        }}>
+          Post
+        </button>
+        {current?.message && (
+          <button onClick={handleClear} disabled={busy} style={{
+            fontSize: 12.5, fontWeight: 600, color: 'var(--danger)', padding: '0 14px',
+            borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', flexShrink: 0,
+          }}>
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPanel() {
   const { user, loading } = useAuth();
   const navigate = useNavigate();
@@ -148,6 +298,9 @@ export default function AdminPanel() {
       </div>
 
       <div style={{ maxWidth: 680, margin: '0 auto', padding: '20px 16px 60px' }}>
+        <AnalyticsSection />
+        <BroadcastSection />
+
         <h2 style={{ fontSize: 15, marginBottom: 12 }}>
           Pending Requests {pending.length > 0 && <span style={{ color: 'var(--accent-blue)' }}>({pending.length})</span>}
         </h2>
