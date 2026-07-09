@@ -1,6 +1,12 @@
 import { doc, runTransaction, onSnapshot } from 'firebase/firestore';
 import { db } from './firebase.js';
 
+// Every user gets 50 free messages per day, plus 1 grace message shown with a
+// clear warning so they're never cut off mid-thought without notice. After
+// that, they must request more from the admin (Settings -> Request More
+// Tokens, or the locked composer in Chat). Admin-granted "extra" messages
+// (from an approved request) never expire and are consumed only once the
+// daily free pool runs out. "unlimited" is a permanent admin-only flag.
 export const DAILY_LIMIT = 50;
 export const GRACE_MESSAGES = 1;
 
@@ -9,14 +15,22 @@ function profileDoc(uid) {
 }
 
 function grantsDoc(uid) {
+  // A separate subcollection (not the main profile doc) so Firestore security
+  // rules can lock this specific document to admin-only writes, while the
+  // user can still freely edit their own customInstructions/memories on the
+  // parent profile doc.
   return doc(db, 'users', uid, 'grants', 'status');
 }
+
+
 
 function todayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// Live-subscribes to both the daily usage counter and the admin-controlled
+// grants, combining them into one derived snapshot the UI can react to.
 export function watchUsage(uid, callback) {
   let profileLoaded = false;
   let grantsLoaded = false;
@@ -31,6 +45,9 @@ export function watchUsage(uid, callback) {
     const dailyUsed = latestProfile.usage?.date === today ? (latestProfile.usage.count || 0) : 0;
     const dailyCap = DAILY_LIMIT + GRACE_MESSAGES;
     const dailyRemaining = Math.max(0, dailyCap - dailyUsed);
+    // Admin-granted extra messages (from an approved token request) plus any
+    // self-service referral bonus messages the user has earned — both are
+    // consumed from the same pool once the daily free cap runs out.
     const extraMessages = (latestGrants.extraMessages || 0) + (latestProfile.referralBonus || 0);
 
     callback({
@@ -42,6 +59,11 @@ export function watchUsage(uid, callback) {
       canSend: unlimited || dailyRemaining > 0 || extraMessages > 0,
       isLastFreeMessage: !unlimited && dailyRemaining === 1 && extraMessages === 0,
       usingExtra: !unlimited && dailyRemaining === 0 && extraMessages > 0,
+      // Total messages this account has ever sent, across all days —
+      // powers the "money saved vs a paid AI subscription" counter in
+      // Settings (see lib/savings.js). Never decremented, unlike the daily
+      // counters above.
+      lifetimeTotal: latestProfile.lifetimeMessageCount || 0,
     });
   };
 
@@ -62,6 +84,10 @@ export function watchUsage(uid, callback) {
   };
 }
 
+// Atomically consumes one message credit — prefers today's free pool first,
+// then falls back to admin-granted extra messages. Wrapped in a Firestore
+// transaction so rapid double-sends (e.g. a flaky network retry) can never
+// double-count or let usage go negative.
 export async function consumeMessageCredit(uid) {
   const pDoc = profileDoc(uid);
   const gDoc = grantsDoc(uid);
@@ -70,8 +96,10 @@ export async function consumeMessageCredit(uid) {
     const [profileSnap, grantsSnap] = await Promise.all([tx.get(pDoc), tx.get(gDoc)]);
     const profile = profileSnap.exists() ? profileSnap.data() : {};
     const grants = grantsSnap.exists() ? grantsSnap.data() : {};
+    const lifetimeTotal = profile.lifetimeMessageCount || 0;
 
     if (grants.unlimited) {
+      tx.set(pDoc, { lifetimeMessageCount: lifetimeTotal + 1 }, { merge: true });
       return { ok: true };
     }
 
@@ -80,19 +108,26 @@ export async function consumeMessageCredit(uid) {
     const dailyCap = DAILY_LIMIT + GRACE_MESSAGES;
 
     if (dailyUsed < dailyCap) {
-      tx.set(pDoc, { usage: { date: today, count: dailyUsed + 1 } }, { merge: true });
+      tx.set(pDoc, {
+        usage: { date: today, count: dailyUsed + 1 },
+        lifetimeMessageCount: lifetimeTotal + 1,
+      }, { merge: true });
       return { ok: true };
     }
 
     const adminExtra = grants.extraMessages || 0;
     if (adminExtra > 0) {
       tx.set(gDoc, { extraMessages: adminExtra - 1 }, { merge: true });
+      tx.set(pDoc, { lifetimeMessageCount: lifetimeTotal + 1 }, { merge: true });
       return { ok: true };
     }
 
     const referralBonus = profile.referralBonus || 0;
     if (referralBonus > 0) {
-      tx.set(pDoc, { referralBonus: referralBonus - 1 }, { merge: true });
+      tx.set(pDoc, {
+        referralBonus: referralBonus - 1,
+        lifetimeMessageCount: lifetimeTotal + 1,
+      }, { merge: true });
       return { ok: true };
     }
 
