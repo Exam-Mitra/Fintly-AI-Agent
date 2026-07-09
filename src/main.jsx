@@ -5,10 +5,10 @@ import './index.css';
 import App from './App.jsx';
 import { AuthProvider } from './lib/AuthContext.jsx';
 import { initTheme } from './lib/theme.js';
+import { capturePendingReferral } from './lib/referralCapture.js';
 
-// Apply the saved light/dark theme before the first paint so there's no
-// flash of the wrong theme on load.
 initTheme();
+capturePendingReferral();
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
