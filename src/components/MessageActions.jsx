@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { speak, stopSpeaking, isSpeechSynthesisSupported } from '../lib/voice.js';
+import FlashcardGenerateButton from './FlashcardGenerateButton.jsx';
 
 const CopyIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
@@ -80,7 +81,7 @@ export default function MessageActions({ text, onRegenerate, showRegenerate, onS
 
   const handleReact = (value) => {
     if (!onReact) return;
-    const next = reaction === value ? null : value;
+    const next = reaction === value ? null : value; // tap again to un-react
     setReaction(next);
     onReact(next || 'cleared');
   };
@@ -157,6 +158,7 @@ export default function MessageActions({ text, onRegenerate, showRegenerate, onS
           <DownloadIcon />
         </button>
       )}
+      <FlashcardGenerateButton text={text} />
       {showRegenerate && (
         <button
           onClick={onRegenerate}
