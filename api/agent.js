@@ -16,14 +16,12 @@
 //   OPENROUTER_API_KEY
 //   CEREBRAS_API_KEY
 //   HUGGINGFACE_API_KEY
+//   TAVILY_API_KEY
 
 const BASE_SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.
 
 Always reply in the SAME language (or language mix) the user is writing in — if they write in Hindi, reply in Hindi; if they write in Hinglish (mixed Hindi-English, typically in Latin script), reply in a similarly natural Hinglish mix; if they write in English, reply in English. Only switch languages if the user explicitly asks you to.`;
 
-// Builds the final system prompt by folding in the user's saved Custom
-// Instructions and remembered facts (from Settings), so every one of the 5
-// engines + the judge all respect them consistently.
 function buildSystemPrompt(customInstructions, memories) {
   let prompt = BASE_SYSTEM_PROMPT;
 
@@ -38,13 +36,63 @@ function buildSystemPrompt(customInstructions, memories) {
   return prompt;
 }
 
-const PROVIDER_TIMEOUT_MS = 20000; // don't let one slow provider hold up the whole response forever
+const PROVIDER_TIMEOUT_MS = 20000;
 
 function withTimeout(promise, ms, label) {
   return Promise.race([
     promise,
     new Promise((_, reject) => setTimeout(() => reject(new Error(`${label}_timeout`)), ms)),
   ]);
+}
+
+const SEARCH_TRIGGER_PATTERNS = [
+  /\b(latest|recent|current|today|this week|this month|this year|right now|breaking)\b/i,
+  /\b(news|headline|update[sd]?)\b/i,
+  /\b(price|stock|share market|sensex|nifty|crypto|bitcoin)\b/i,
+  /\b(weather|forecast|temperature)\b/i,
+  /\b(score|match result|who won|election result)\b/i,
+  /\b(20(2[5-9]|3\d))\b/,
+  /\bwho is (the )?(current|new)\b/i,
+  /\bwhen (is|was|will)\b/i,
+];
+
+function needsWebSearch(text) {
+  if (!text) return false;
+  return SEARCH_TRIGGER_PATTERNS.some((re) => re.test(text));
+}
+
+async function searchWeb(query) {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch('https://api.tavily.com/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: key,
+        query,
+        max_results: 5,
+        include_answer: false,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const results = (data.results || []).map((r) => ({
+      title: r.title,
+      url: r.url,
+      snippet: (r.content || '').slice(0, 400),
+    }));
+    if (!results.length) return null;
+    return results;
+  } catch {
+    return null;
+  }
+}
+
+function buildSearchContext(results) {
+  return `Here are current web search results that may be relevant to the user's question (retrieved just now):\n\n${results
+    .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`)
+    .join('\n\n')}\n\nUse these results to inform your answer where relevant, especially for anything time-sensitive or factual you're not fully certain about. When you use information from a specific result, you may cite it inline like [1] or [2] matching the numbers above. Do not fabricate URLs — only reference the ones given above.`;
 }
 
 async function callGroq(messages) {
@@ -93,12 +141,6 @@ async function callGemini(messages) {
   return text;
 }
 
-// Vision-capable variant of callGemini — attaches an inline image to the LAST
-// user turn (the one carrying the actual question about the image), while
-// keeping the rest of the conversation as normal text turns for context.
-// Gemini is the only one of our 5 free engines with a usable free vision tier,
-// so image questions are answered by this single call rather than the usual
-// 5-engine + judge pipeline.
 async function callGeminiVision(messages, attachment) {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('not_configured');
@@ -189,10 +231,6 @@ async function callHuggingFace(messages) {
   return text;
 }
 
-// Synthesizes multiple independent AI answers into one polished final answer.
-// Uses Gemini as the judge (fast, generous free quota, good synthesis quality).
-// If Gemini is unavailable, falls back to Groq as judge, then to just returning
-// the single best candidate answer if no judge model is reachable at all.
 async function synthesize(userQuestion, candidateAnswers) {
   const judgePrompt = `You are Fintly Pro, an AI that synthesizes multiple independent AI-generated answers into one single, best, accurate, well-written final answer for the user.
 
@@ -218,7 +256,6 @@ Formatting rules (important):
     try {
       return await withTimeout(callGroq(judgeMessages), PROVIDER_TIMEOUT_MS, 'judge_groq');
     } catch {
-      // No judge model reachable — fall back to the first candidate answer as-is.
       return candidateAnswers[0];
     }
   }
@@ -238,15 +275,20 @@ export default async function handler(req, res) {
 
   const overallStart = Date.now();
 
-  // Keep the payload reasonably small — send only recent turns to each provider.
   const trimmedHistory = messages.slice(-16);
-  const systemPrompt = buildSystemPrompt(customInstructions, memories);
-  const fullMessages = [{ role: 'system', content: systemPrompt }, ...trimmedHistory];
   const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
 
-  // An image was attached — only Gemini (of our 5 free engines) has a usable
-  // free vision tier, so we skip the usual 5-engine + judge pipeline entirely
-  // and answer directly with a single vision-capable call.
+  let searchResults = null;
+  if (needsWebSearch(lastUserMessage)) {
+    searchResults = await searchWeb(lastUserMessage);
+  }
+
+  let systemPrompt = buildSystemPrompt(customInstructions, memories);
+  if (searchResults) {
+    systemPrompt += `\n\n${buildSearchContext(searchResults)}`;
+  }
+  const fullMessages = [{ role: 'system', content: systemPrompt }, ...trimmedHistory];
+
   if (imageAttachment && imageAttachment.dataBase64) {
     try {
       const reply = await withTimeout(
@@ -260,6 +302,7 @@ export default async function handler(req, res) {
         totalEngines: 1,
         elapsedMs: Date.now() - overallStart,
         engineTimings: [{ id: 1, ok: true, ms: Date.now() - overallStart }],
+        sources: searchResults || [],
       });
     } catch (err) {
       res.status(200).json({
@@ -268,13 +311,12 @@ export default async function handler(req, res) {
         totalEngines: 1,
         elapsedMs: Date.now() - overallStart,
         engineTimings: [{ id: 1, ok: false, ms: Date.now() - overallStart }],
+        sources: [],
       });
     }
     return;
   }
 
-  // NOTE: providers are only ever identified by anonymous index (1..5) anywhere
-  // this data leaves the server — real provider names must never reach the client.
   const providerCalls = [
     () => callGroq(fullMessages),
     () => callGemini(fullMessages),
@@ -303,11 +345,11 @@ export default async function handler(req, res) {
       totalEngines: providerCalls.length,
       elapsedMs: Date.now() - overallStart,
       engineTimings,
+      sources: searchResults || [],
     });
     return;
   }
 
-  // If only one model responded, no need to synthesize — just return it directly.
   if (successfulAnswers.length === 1) {
     res.status(200).json({
       reply: successfulAnswers[0],
@@ -315,6 +357,7 @@ export default async function handler(req, res) {
       totalEngines: providerCalls.length,
       elapsedMs: Date.now() - overallStart,
       engineTimings,
+      sources: searchResults || [],
     });
     return;
   }
@@ -327,15 +370,16 @@ export default async function handler(req, res) {
       totalEngines: providerCalls.length,
       elapsedMs: Date.now() - overallStart,
       engineTimings,
+      sources: searchResults || [],
     });
   } catch (err) {
-    // Synthesis itself failed for some reason — fall back to the first successful answer.
     res.status(200).json({
       reply: successfulAnswers[0],
       modelsUsed: successfulAnswers.length,
       totalEngines: providerCalls.length,
       elapsedMs: Date.now() - overallStart,
       engineTimings,
+      sources: searchResults || [],
     });
   }
 }
