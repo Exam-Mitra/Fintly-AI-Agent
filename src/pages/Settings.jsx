@@ -4,6 +4,7 @@ import { useAuth } from '../lib/AuthContext.jsx';
 import { watchProfile, saveCustomInstructions, addMemory, removeMemory } from '../lib/profile.js';
 import { watchUsage } from '../lib/usage.js';
 import { getStoredTheme, applyTheme } from '../lib/theme.js';
+import { getOrCreateReferralCode, buildReferralLink } from '../lib/referral.js';
 import RequestTokensModal from '../components/RequestTokensModal.jsx';
 
 const BackIcon = () => (
@@ -28,10 +29,41 @@ export default function Settings() {
   const [usage, setUsage] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [theme, setTheme] = useState(getStoredTheme());
+  const [referralLink, setReferralLink] = useState('');
+  const [referralCopied, setReferralCopied] = useState(false);
 
   const handleThemeChange = (next) => {
     setTheme(next);
     applyTheme(next);
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    getOrCreateReferralCode(user.uid).then((code) => setReferralLink(buildReferralLink(code)));
+  }, [user]);
+
+  const handleCopyReferral = async () => {
+    try {
+      await navigator.clipboard.writeText(referralLink);
+      setReferralCopied(true);
+      setTimeout(() => setReferralCopied(false), 1800);
+    } catch {}
+  };
+
+  const handleShareReferral = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'Fintly AI Agent',
+          text: 'Join me on Fintly AI Agent — a free multi-model AI assistant. Sign up with my link and we both get bonus messages!',
+          url: referralLink,
+        });
+      } catch {
+        // user cancelled the share sheet
+      }
+    } else {
+      handleCopyReferral();
+    }
   };
 
   useEffect(() => {
@@ -125,6 +157,43 @@ export default function Settings() {
           ) : (
             <div style={{ color: 'var(--ink-faint)', fontSize: 13 }}>Loading…</div>
           )}
+        </section>
+
+        <section style={{ marginBottom: 36 }}>
+          <h2 style={{ fontSize: 15.5, marginBottom: 6 }}>Invite Friends, Get Bonus Messages</h2>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 14, lineHeight: 1.5 }}>
+            Share your link — when a friend signs up with it, you BOTH get 20 bonus messages, instantly.
+          </p>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface)',
+            border: '1px solid var(--border)', borderRadius: 12, padding: '10px 12px', marginBottom: 10,
+          }}>
+            <span style={{
+              flex: 1, fontSize: 12.5, color: 'var(--ink-soft)', overflow: 'hidden',
+              textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {referralLink || 'Loading your link…'}
+            </span>
+            <button
+              onClick={handleCopyReferral}
+              style={{
+                fontSize: 12, fontWeight: 700, color: referralCopied ? 'var(--success)' : 'var(--ink)',
+                padding: '6px 12px', borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0,
+              }}
+            >
+              {referralCopied ? 'Copied ✓' : 'Copy'}
+            </button>
+          </div>
+          <button
+            onClick={handleShareReferral}
+            disabled={!referralLink}
+            style={{
+              width: '100%', fontSize: 13.5, fontWeight: 700, color: '#0F1115',
+              padding: '11px 0', borderRadius: 12, background: 'var(--accent-gradient)',
+            }}
+          >
+            Share Invite Link
+          </button>
         </section>
 
         <section style={{ marginBottom: 36 }}>
