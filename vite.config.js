@@ -6,16 +6,12 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      // Switched from the default "generateSW" strategy to "injectManifest"
-      // so our own src/sw.js can handle Web Push notifications (see that
-      // file for why) — everything else (precaching the app shell for
-      // offline use, auto-update behavior) still works exactly as before.
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.js',
       registerType: 'autoUpdate',
       injectManifest: {
-        globPatterns: ['**/*.{js,css,html,svg,ico}'],
+        globPatterns: ['**/*.{js,css,html,svg,ico,png}'],
       },
       manifest: {
         name: 'Fintly AI Agent',
@@ -27,9 +23,9 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/',
         icons: [
-          { src: '/logo.svg', sizes: '192x192', type: 'image/svg+xml' },
-          { src: '/logo.svg', sizes: '512x512', type: 'image/svg+xml' },
-          { src: '/logo.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: '/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
     }),
