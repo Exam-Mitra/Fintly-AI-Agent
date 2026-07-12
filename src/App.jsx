@@ -7,6 +7,7 @@ import FlashcardSets from './pages/FlashcardSets.jsx';
 import Flashcards from './pages/Flashcards.jsx';
 import SharedChat from './pages/SharedChat.jsx';
 import AdminPanel from './pages/AdminPanel.jsx';
+import Connections from './pages/Connections.jsx';
 import ProtectedRoute from './components/ProtectedRoute.jsx';
 import TokenRequestNotifier from './components/TokenRequestNotifier.jsx';
 import BroadcastBanner from './components/BroadcastBanner.jsx';
@@ -38,6 +39,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Settings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/connections"
+          element={
+            <ProtectedRoute>
+              <Connections />
             </ProtectedRoute>
           }
         />
