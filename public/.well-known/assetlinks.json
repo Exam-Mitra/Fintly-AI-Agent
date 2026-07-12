@@ -1,0 +1,10 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "app.vercel.fintly_ai_agent_sepia.twa",
+      "sha256_cert_fingerprints": ["13:0F:FE:EB:38:D4:8A:4E:AD:07:B1:45:18:70:FE:B9:8B:E3:A0:B8:FF:9E:8A:89:CF:FC:B0:33:DB:D9:F6:C6"]
+    }
+  }
+]
