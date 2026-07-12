@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { speak, stopSpeaking, isSpeechSynthesisSupported } from '../lib/voice.js';
+import { synthesizeSpeech, downloadBase64File, detectLang } from '../lib/tools.js';
 import FlashcardGenerateButton from './FlashcardGenerateButton.jsx';
 
 const CopyIcon = () => (
@@ -38,6 +39,14 @@ const ThumbDownIcon = ({ active }) => (
     <path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zM17 2h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3" />
   </svg>
 );
+const NoteIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M9 18V5l12-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="18" cy="16" r="3" />
+  </svg>
+);
+
 const SpeakerIcon = ({ active }) => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={active ? 'var(--accent-blue)' : 'currentColor'} strokeWidth="1.8">
     <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
@@ -53,6 +62,7 @@ export default function MessageActions({ text, onRegenerate, showRegenerate, onS
   const [saved, setSaved] = useState(false);
   const [reaction, setReaction] = useState(null);
   const [speaking, setSpeaking] = useState(false);
+  const [ttsBusy, setTtsBusy] = useState(false);
 
   const handleSpeak = () => {
     if (speaking) {
@@ -62,6 +72,19 @@ export default function MessageActions({ text, onRegenerate, showRegenerate, onS
     }
     setSpeaking(true);
     speak(text, { onEnd: () => setSpeaking(false) });
+  };
+
+  const handleDownloadAudio = async () => {
+    if (ttsBusy) return;
+    setTtsBusy(true);
+    try {
+      const data = await synthesizeSpeech({ text, lang: detectLang(text) });
+      downloadBase64File(data.audioBase64, data.mimeType, 'fintly-speech.wav');
+    } catch {
+      // fail silently — network/key issues shouldn't break the row
+    } finally {
+      setTtsBusy(false);
+    }
   };
 
   const handleCopy = async () => {
@@ -110,6 +133,17 @@ export default function MessageActions({ text, onRegenerate, showRegenerate, onS
           <SpeakerIcon active={speaking} />
         </button>
       )}
+      <button
+        onClick={handleDownloadAudio}
+        title={ttsBusy ? 'Generating audio…' : 'Download spoken audio (WAV)'}
+        disabled={ttsBusy}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 26, height: 26, borderRadius: 8, color: ttsBusy ? 'var(--accent-blue)' : 'var(--ink-faint)',
+        }}
+      >
+        <NoteIcon />
+      </button>
       {onReact && (
         <>
           <button
