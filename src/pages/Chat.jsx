@@ -22,6 +22,8 @@ import { startListening, isSpeechRecognitionSupported } from '../lib/voice.js';
 import { isOnline, queueMessage, getQueuedMessages, removeQueuedMessage, onBackOnline } from '../lib/offlineQueue.js';
 import { selectRelevantChunks, buildPdfContext } from '../lib/pdfChat.js';
 import RequestTokensModal from '../components/RequestTokensModal.jsx';
+import CameraCapture from '../components/CameraCapture.jsx';
+import ToolsModal from '../components/ToolsModal.jsx';
 
 const MenuIcon = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -103,6 +105,7 @@ export default function Chat() {
   const [attachError, setAttachError] = useState('');
   const [usage, setUsage] = useState(null);
   const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showTools, setShowTools] = useState(false);
   const [listening, setListening] = useState(false);
   const [offline, setOffline] = useState(!isOnline());
   const [pdfContext, setPdfContext] = useState(null); // { name, pageCount } — just for the UI chip; the actual chunks live in pdfChunksRef
@@ -682,6 +685,7 @@ export default function Chat() {
               >
                 <PaperclipIcon />
               </button>
+              <CameraCapture onCapture={setPendingAttachment} disabled={sending || (usage && !usage.canSend)} />
               {isSpeechRecognitionSupported() && (
                 <button
                   onClick={toggleListening}
@@ -697,6 +701,17 @@ export default function Chat() {
                   <MicIcon active={listening} />
                 </button>
               )}
+              <button
+                onClick={() => setShowTools(true)}
+                disabled={sending || (usage && !usage.canSend)}
+                title="Open Fintly Tools (image, documents, web)"
+                style={{
+                  width: 34, height: 34, borderRadius: 10, flexShrink: 0, color: 'var(--ink-soft)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                🧰
+              </button>
               <input
                 ref={inputRef}
                 value={input}
@@ -745,6 +760,15 @@ export default function Chat() {
       </div>
 
       {showRequestModal && <RequestTokensModal onClose={() => setShowRequestModal(false)} />}
+      {showTools && (
+        <ToolsModal
+          open={showTools}
+          onClose={() => setShowTools(false)}
+          onAddImage={(att) => setPendingAttachment(att)}
+          onAddText={(t) => setPendingAttachment({ kind: 'text', name: t.name, content: t.content })}
+          onTemplate={(p) => send(p)}
+        />
+      )}
     </div>
   );
 }
