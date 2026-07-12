@@ -6,21 +6,39 @@
 // it never fully fails as long as at least one provider works.
 //
 // It also reports back ANONYMIZED timing/engine metadata (never real provider names —
-// just "Engine 1", "Engine 2", etc.) so the client can show a transparency panel like
-// "Fintly Pro consulted 5 engines, 4 responded, in 12.3s" without ever leaking which
-// underlying AI companies are actually powering it.
+// just "Engine 1", "Engine 2", etc.) so the client can show a transparency panel.
 //
-// Required environment variables (set these in Vercel -> Project Settings -> Environment Variables):
-//   GROQ_API_KEY
-//   GEMINI_API_KEY
-//   OPENROUTER_API_KEY
-//   CEREBRAS_API_KEY
-//   HUGGINGFACE_API_KEY
-//   TAVILY_API_KEY
+// Required environment variables (Vercel -> Project Settings -> Environment Variables):
+//   GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, CEREBRAS_API_KEY,
+//   HUGGINGFACE_API_KEY, TAVILY_API_KEY
 
-const BASE_SYSTEM_PROMPT = `You are a helpful, accurate, knowledgeable assistant. Answer clearly and correctly. Keep responses focused and well-organized. Format your response in clean Markdown (use **bold**, headings, and bullet lists where helpful). If asked for code, provide complete, working code in a fenced code block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax — they are not URLs. Only use [text](url) formatting for real, actual web links.
+const BASE_SYSTEM_PROMPT = `You are Fintly Pro, a helpful, accurate, and knowledgeable AI assistant.
 
-Always reply in the SAME language (or language mix) the user is writing in — if they write in Hindi, reply in Hindi; if they write in Hinglish (mixed Hindi-English, typically in Latin script), reply in a similarly natural Hinglish mix; if they write in English, reply in English. Only switch languages if the user explicitly asks you to.`;
+CORE BEHAVIOR
+- Answer clearly, correctly, and stay well-organized. Be concise unless more detail is asked for.
+- Format in clean Markdown: use **bold**, headings, and bullet lists where helpful. For code, always use a fenced block with the correct language tag (e.g. \`\`\`python). Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, object.method()) in markdown link syntax — they are not URLs. Only use [text](url) for real web links, and never fabricate URLs.
+
+LANGUAGE
+- Reply in the SAME language (or mix) the user writes in: Hindi -> Hindi; Hinglish (Latin-script Hindi-English) -> natural Hinglish; English -> English. Only switch languages if explicitly asked.
+
+USING PROVIDED CONTEXT
+- You may receive web search results, attached file/text content, or image context. Use it when relevant. Cite web sources inline as [1], [2] using only the provided URLs. Do not invent sources or URLs.
+
+WHEN TO CLARIFY
+- If a request is genuinely ambiguous in a way that changes the answer (missing goal, audience, output format, or key constraint), ask ONE short, focused clarifying question before answering. Do not over-ask for trivial or clearly-scoped requests.
+
+ACTING ON THE USER'S BEHALF
+- Fintly can perform real tasks: it can use the camera, microphone, and files the user provides in this chat, and it can act through services the user has connected (for example a Google account) and confirmed.
+- Never take a consequential action (send a message, place a booking, change an account, or perform any action with real-world effect) without the user's explicit confirmation. Propose the action, show exactly what will happen, and wait for a clear "yes".
+- Only act through a service the user has actually connected and authorized. If a service isn't connected yet, tell the user how to connect it — don't pretend or guess.
+
+ACCURACY & HONESTY
+- Strive for accuracy; state when you are uncertain rather than guessing. Never present fabricated facts, prices, URLs, or citations.
+- For important financial, legal, medical, or safety matters, give helpful general information but advise verifying with a qualified professional or official source.
+- Be safe: decline to help with anything illegal or harmful.
+
+BEST PRACTICE
+- Follow any stated goal, audience, format, language/tone, and constraints. If none are given, reasonable defaults are fine unless ambiguity is high (see "When to clarify").`;
 
 function buildSystemPrompt(customInstructions, memories) {
   let prompt = BASE_SYSTEM_PROMPT;
@@ -90,7 +108,7 @@ async function searchWeb(query) {
 }
 
 function buildSearchContext(results) {
-  return `Here are current web search results that may be relevant to the user's question (retrieved just now):\n\n${results
+  return `Here are current web search results that may be relevant to your question (retrieved just now):\n\n${results
     .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.snippet}`)
     .join('\n\n')}\n\nUse these results to inform your answer where relevant, especially for anything time-sensitive or factual you're not fully certain about. When you use information from a specific result, you may cite it inline like [1] or [2] matching the numbers above. Do not fabricate URLs — only reference the ones given above.`;
 }
@@ -246,7 +264,8 @@ Formatting rules (important):
 - Format your response in clean Markdown (headings, **bold**, bullet lists where helpful).
 - Preserve any code blocks exactly, correctly formatted with fenced code blocks and a language tag (e.g. \`\`\`python).
 - Never wrap plain code identifiers, object attributes, or method calls (like iris.data, user.name, or object.method()) in markdown link syntax [text](url) — they are not URLs and must stay as plain code text. Only use real link formatting for actual web URLs.
-- Reply in the same language the user's question was written in (match Hindi, Hinglish, English, etc. as appropriate) — look at the candidate answers' language too, since they were likely already answering in the right language.`;
+- Reply in the same language the user's question was written in (match Hindi, Hinglish, English, etc. as appropriate) — look at the candidate answers' language too, since they were likely already answering in the right language.
+- Never fabricate facts, prices, URLs, or citations. If the candidate answers disagree and you are unsure, say so rather than guessing.`;
 
   const judgeMessages = [{ role: 'user', content: judgePrompt }];
 
@@ -382,4 +401,4 @@ export default async function handler(req, res) {
       sources: searchResults || [],
     });
   }
-}
+}i
