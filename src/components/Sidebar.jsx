@@ -42,6 +42,13 @@ const CardsIcon = () => (
     <path d="M7 6V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-2" />
   </svg>
 );
+const PlugIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+    <path d="M12 22v-5" />
+    <path d="M9 8V2M15 8V2" />
+    <path d="M18 8H6v4a6 6 0 0 0 12 0V8z" />
+  </svg>
+);
 const ShieldIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -213,6 +220,17 @@ export default function Sidebar({ isOpen, onClose }) {
           >
             <CardsIcon />
             <span style={{ fontSize: 13.5 }}>Flashcards</span>
+          </button>
+          <button
+            onClick={() => { navigate('/connections'); onClose?.(); }}
+            className="sidebar-chat-item"
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '9px 12px', borderRadius: 10, textAlign: 'left', color: 'var(--ink-soft)',
+            }}
+          >
+            <PlugIcon />
+            <span style={{ fontSize: 13.5 }}>Connections</span>
           </button>
           <button
             onClick={() => { navigate('/settings'); onClose?.(); }}
